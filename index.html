@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#b4004b" />
+    <meta name="description" content="Cardápio e pedidos online" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23b4004b' d='M9 29c0-12 9-21 23-21s23 9 23 21c0 17-13 27-23 27S9 46 9 29Z'/%3E%3Cpath fill='%23ffad16' d='M15 25c6-7 28-7 34 0v8c-7-5-27-5-34 0z'/%3E%3Ccircle fill='%23fff8f1' cx='23' cy='39' r='4'/%3E%3Ccircle fill='%23fff8f1' cx='41' cy='39' r='4'/%3E%3C/svg%3E" />
+    <title>Cardápio</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="styles.css?v=20260913-order-details" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <button class="brand" type="button" aria-label="Voltar ao início" data-action="home">
+          <span class="brand-mark" aria-hidden="true">tw</span>
+          <span class="brand-copy"><span id="store-name">Carregando loja...</span><small>pedido pelo celular</small></span>
+        </button>
+        <div class="topbar-actions">
+          <button class="my-orders-button" type="button" data-action="open-my-orders" aria-label="Meus pedidos" title="Meus pedidos">
+            <span aria-hidden="true">☷</span><span class="my-orders-label">Meus pedidos</span>
+          </button>
+          <button class="cart-button" type="button" data-action="open-cart" aria-label="Abrir sacola">
+            <span aria-hidden="true">🛍</span>
+            <span class="cart-count" id="cart-count">0</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="welcome" aria-labelledby="welcome-title">
+        <div class="hero-orbit hero-orbit-one" aria-hidden="true"></div>
+        <div class="hero-orbit hero-orbit-two" aria-hidden="true"></div>
+        <div class="hero-dots" aria-hidden="true">• •<br>• • •</div>
+        <div class="hero-products" role="img" aria-label="Oreo à esquerda, milk-shake de menta ao centro e Deleite à direita">
+          <img class="hero-product hero-product-oreo" src="assets/upmax-oreo-cutout.png" alt="" />
+          <img class="hero-product hero-product-deleite" src="assets/up-deleite-cutout-v2.png" alt="" />
+          <img class="hero-product hero-product-menta" src="assets/milkshake-menta-cutout.png" alt="" />
+        </div>
+        <p class="eyebrow">PEDIDO ONLINE</p>
+        <h1 id="welcome-title"><span>Seu pedido,</span> do seu jeito.</h1>
+        <p id="store-description" class="welcome-copy">O cardápio da loja será carregado aqui.</p>
+      </section>
+
+      <div class="ticker" aria-hidden="true"><div>FRESQUINHO • FEITO NA HORA • PEDIDO FÁCIL • FRESQUINHO • FEITO NA HORA • PEDIDO FÁCIL •</div></div>
+
+      <section class="catalog-section" aria-live="polite">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">CARDÁPIO</p>
+            <h2 id="catalog-title">Produtos da loja</h2>
+          </div>
+          <button id="reload-catalog" class="icon-button" type="button" aria-label="Atualizar cardápio">↻</button>
+        </div>
+        <div id="catalog-status" class="catalog-status is-loading">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Atualizando cardápio...</span>
+        </div>
+        <label class="catalog-search" for="catalog-search-input">
+          <span aria-hidden="true">⌕</span>
+          <input id="catalog-search-input" type="search" autocomplete="off" placeholder="Busque seu produto ou sabor" aria-label="Buscar produto ou sabor" />
+        </label>
+        <div id="category-bar" class="category-bar" hidden aria-label="Categorias"></div>
+        <div id="catalog-grid" class="catalog-grid"></div>
+      </section>
+    </main>
+
+    <button id="cart-dock" class="cart-dock" type="button" data-action="open-cart" hidden>
+      <span class="cart-dock-icon" aria-hidden="true">🛍</span>
+      <span class="cart-dock-copy"><small>SUA SACOLA</small><strong id="cart-dock-label">0 item</strong></span>
+      <strong id="cart-dock-total">R$ 0,00</strong>
+      <span class="cart-dock-arrow" aria-hidden="true">→</span>
+    </button>
+
+    <aside id="cart-sheet" class="sheet" aria-hidden="true" aria-label="Sua sacola">
+      <div class="sheet-backdrop" data-action="close-cart"></div>
+      <section class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-header">
+          <div><p class="eyebrow">SEU PEDIDO</p><h2 id="cart-title">Sua sacola</h2></div>
+          <button class="icon-button" type="button" data-action="close-cart" aria-label="Fechar">×</button>
+        </header>
+        <div id="cart-items" class="cart-items"></div>
+        <div class="cart-summary">
+          <span>Total do pedido</span><strong id="cart-total">R$ 0,00</strong>
+        </div>
+        <button id="checkout-button" class="primary-button" type="button" disabled>Continuar pedido</button>
+      </section>
+    </aside>
+
+    <aside id="options-sheet" class="sheet" aria-hidden="true" aria-label="Personalizar produto">
+      <div class="sheet-backdrop" data-action="close-options"></div>
+      <section class="sheet-panel options-panel" role="dialog" aria-modal="true" aria-labelledby="options-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-header">
+          <div><p class="eyebrow">PERSONALIZE</p><h2 id="options-title">Seu produto</h2></div>
+          <button class="icon-button" type="button" data-action="close-options" aria-label="Fechar">×</button>
+        </header>
+        <p id="options-subtitle" class="options-subtitle"></p>
+        <form id="options-form" class="options-form">
+          <div id="variation-groups" class="variation-groups"></div>
+        </form>
+      </section>
+      <button id="options-quick-add" class="options-quick-add" type="submit" form="options-form" hidden>Adicionar à sacola</button>
+    </aside>
+
+    <aside id="checkout-sheet" class="sheet" aria-hidden="true" aria-label="Finalizar pedido">
+      <div class="sheet-backdrop" data-action="close-checkout"></div>
+      <section class="sheet-panel checkout-panel" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-header">
+          <div><p class="eyebrow">FINALIZAR</p><h2 id="checkout-title">Seus dados</h2></div>
+          <button class="icon-button" type="button" data-action="close-checkout" aria-label="Fechar">×</button>
+        </header>
+        <form id="checkout-form" class="checkout-form">
+          <fieldset class="fulfillment-checkout">
+            <legend>Como você quer receber?</legend>
+            <div class="fulfillment-options">
+              <label><input type="radio" name="fulfillment" value="pickup" checked /><span><b aria-hidden="true">⌁</b> Retirar na loja<small>Você busca quando estiver pronto</small></span></label>
+              <label><input type="radio" name="fulfillment" value="delivery" /><span><b aria-hidden="true">⌂</b> Entrega<small>Informe o endereço abaixo</small></span></label>
+            </div>
+          </fieldset>
+          <label>Seu nome<input name="name" autocomplete="name" required placeholder="Como podemos te chamar?" /></label>
+          <label>WhatsApp<input name="phone" inputmode="tel" autocomplete="tel" required placeholder="(00) 00000-0000" /></label>
+          <div id="delivery-fields" hidden>
+            <label>Endereço<input name="address" autocomplete="street-address" placeholder="Rua, número e bairro" /></label>
+            <label>Referência<input name="reference" placeholder="Casa, bloco ou ponto de referência" /></label>
+            <div class="delivery-location-tools">
+              <button id="use-current-location" class="secondary-button delivery-location-button" type="button"><span aria-hidden="true">⌖</span> Escolher localização no mapa</button>
+            </div>
+            <p id="delivery-location-status" class="delivery-location-status" aria-live="polite">Opcional: use sua localização para ajudar a loja a encontrar o endereço.</p>
+          </div>
+          <fieldset>
+            <legend>Pagamento</legend>
+            <div id="payment-options" class="payment-options"></div>
+            <div id="cash-payment-details" class="cash-payment-details" hidden>
+              <label>Valor entregue em dinheiro
+                <input id="cash-amount-received" name="cashAmountReceived" inputmode="decimal" autocomplete="off" placeholder="R$ 0,00" />
+              </label>
+              <p id="cash-payment-summary" class="cash-payment-summary" aria-live="polite"></p>
+            </div>
+          </fieldset>
+          <label>Observação<textarea name="note" rows="2" placeholder="Alguma observação para o pedido?"></textarea></label>
+          <p id="checkout-feedback" class="checkout-feedback" hidden></p>
+          <button class="primary-button" type="submit">Enviar pedido ao caixa</button>
+        </form>
+        <div id="order-sent" class="order-sent" hidden>
+          <p class="eyebrow">PEDIDO ENVIADO</p>
+          <h3>Seu pedido chegou ao caixa!</h3>
+          <p id="order-status-copy">A loja recebeu seu pedido e vai avaliar o atendimento.</p>
+          <div class="order-ticket"><small>SEU TICKET DE ATENDIMENTO</small><strong id="order-ticket-code">—</strong><span>Guarde este código caso precise de suporte.</span></div>
+          <button class="text-button" type="button" data-action="close-checkout">Voltar ao cardápio</button>
+        </div>
+      </section>
+    </aside>
+
+    <section id="delivery-map-picker" class="delivery-map-picker" hidden role="dialog" aria-modal="true" aria-label="Escolher localização no mapa">
+      <div class="delivery-map-picker-backdrop" data-action="close-delivery-map"></div>
+      <div class="delivery-map-picker-card">
+        <div class="delivery-map-picker-head"><strong>Confirme o ponto da entrega</strong><button id="close-delivery-map" class="text-button" type="button">Fechar</button></div>
+        <div id="delivery-map-canvas" class="delivery-map-canvas"></div>
+        <p id="delivery-map-status" class="delivery-map-status" aria-live="polite">Buscando sua localização…</p>
+        <div class="delivery-map-picker-actions"><button id="confirm-delivery-location" class="primary-button" type="button" disabled>Confirmar localização</button></div>
+      </div>
+    </section>
+
+    <aside id="my-orders-sheet" class="sheet" aria-hidden="true" aria-label="Meus pedidos">
+      <div class="sheet-backdrop" data-action="close-my-orders"></div>
+      <section class="sheet-panel my-orders-panel" role="dialog" aria-modal="true" aria-labelledby="my-orders-title">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <header class="sheet-header">
+          <div><p class="eyebrow">ACOMPANHAMENTO</p><h2 id="my-orders-title">Meus pedidos</h2></div>
+          <button class="icon-button" type="button" data-action="close-my-orders" aria-label="Fechar">×</button>
+        </header>
+        <p class="my-orders-intro">Pedidos feitos por este celular. Consulte o andamento ou reveja o histórico.</p>
+        <section class="my-orders-section" aria-labelledby="my-orders-active-title"><div class="my-orders-section-head"><h3 id="my-orders-active-title">Em andamento</h3><span id="my-orders-active-count">0</span></div><div id="my-orders-active-list" class="my-orders-list"></div></section>
+        <section class="my-orders-section" aria-labelledby="my-orders-history-title"><div class="my-orders-section-head"><h3 id="my-orders-history-title">Histórico</h3><span id="my-orders-history-count">0</span></div><div id="my-orders-history-list" class="my-orders-list"></div></section>
+      </section>
+    </aside>
+
+    <template id="product-template">
+      <article class="product-card">
+        <div class="product-image"><span class="product-initial" aria-hidden="true"></span></div>
+        <div class="product-details">
+          <p class="product-category"></p>
+          <h3></h3>
+          <p class="product-description"></p>
+          <div class="product-footer"><strong class="product-price"></strong><button type="button" class="add-button">Adicionar</button></div>
+        </div>
+      </article>
+    </template>
+
+    <div id="order-sending-overlay" class="order-sending-overlay" hidden aria-live="assertive" aria-busy="true">
+      <div><span class="order-sending-spinner" aria-hidden="true"></span><strong>Enviando seu pedido</strong><p>Aguarde um instante, estamos confirmando tudo.</p></div>
+    </div>
+
+    <div id="order-tracking-modal" class="order-tracking-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="order-tracking-title">
+      <div class="order-tracking-backdrop" data-action="close-tracking"></div>
+      <section class="order-tracking-card">
+        <header class="order-tracking-head">
+          <div><p class="eyebrow">ACOMPANHAMENTO</p><h2 id="order-tracking-title">Seu pedido</h2></div>
+          <button class="icon-button" type="button" data-action="close-tracking" aria-label="Fechar acompanhamento">×</button>
+        </header>
+        <div class="order-tracking-status" id="order-tracking-status" data-status="pending">
+          <span class="order-tracking-status-icon" aria-hidden="true">✓</span>
+          <div><strong id="order-tracking-label">Pedido enviado com sucesso!</strong><p id="order-tracking-copy">A loja recebeu seu pedido e vai confirmar o atendimento.</p></div>
+        </div>
+        <div class="order-ticket"><small>SEU TICKET DE ATENDIMENTO</small><strong id="tracking-ticket-code">—</strong><span>Guarde este código caso precise de suporte.</span><button id="copy-tracking-ticket" class="copy-ticket-button" type="button">Copiar ticket</button></div>
+        <ol id="order-tracking-steps" class="order-tracking-steps" aria-label="Etapas do pedido">
+          <li data-step="1"><span>1</span><div><strong>Pedido enviado</strong><small>Aguardando a confirmação da loja</small></div></li>
+          <li data-step="2"><span>2</span><div><strong>Pedido aceito</strong><small>Seu pedido está sendo preparado</small></div></li>
+          <li data-step="3"><span>3</span><div><strong>Em atendimento</strong><small>O Caixa está organizando seu pedido</small></div></li>
+          <li data-step="4"><span>4</span><div><strong id="tracking-step-4-title">Pronto para retirada</strong><small id="tracking-step-4-copy">A loja avisa quando você já pode buscar</small></div></li>
+          <li data-step="5"><span>5</span><div><strong id="tracking-step-5-title">Retirada concluída</strong><small id="tracking-step-5-copy">Atendimento finalizado</small></div></li>
+        </ol>
+        <p id="order-tracking-reason" class="order-tracking-reason" hidden></p>
+        <button class="primary-button order-tracking-close" type="button" data-action="close-tracking">Voltar ao cardápio</button>
+      </section>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="runtime-config.js"></script>
+    <script src="app.js?v=20260913-customer-profile"></script>
+  </body>
+</html>

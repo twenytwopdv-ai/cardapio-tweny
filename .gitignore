@@ -1,0 +1,6 @@
+# Servidor e dados exclusivos do ambiente local de testes.
+server.js
+DEPLOYMENT.md
+node_modules/
+.DS_Store
+
