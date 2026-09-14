@@ -149,3 +149,13 @@ h2 { margin: 0; font-size: 1.38rem; letter-spacing: -.035em; }
 @media (max-width: 359px) { .topbar { padding-inline: .6rem; }.topbar-actions { gap: .25rem; }.my-orders-button, .cart-button { min-width: 2.2rem; min-height: 2.2rem; }.my-order-card { grid-template-columns: minmax(0, 1fr); }.my-order-side { grid-template-columns: 1fr auto; align-items: center; justify-items: stretch; }.my-order-total { align-self: center; }.my-order-track { justify-self: end; } }
 .cash-payment-details { display: grid; gap: .5rem; margin-top: .7rem; padding: .8rem; border: 1px dashed #e8b1c5; border-radius: .8rem; background: #fff7f9; }.cash-payment-details[hidden] { display: none; }.cash-payment-details label { font-size: .8rem; }.cash-payment-details input { font-size: 1rem; font-variant-numeric: tabular-nums; }.cash-payment-summary { min-height: 1.15rem; margin: 0; color: var(--wine-dark); font-size: .82rem; font-weight: 800; }.cash-payment-summary.is-change { color: #087b45; }.cash-payment-summary.is-missing { color: #b24100; }
 .category-bar { gap: .65rem; padding: 1rem 0 .55rem; }.category-button { max-width: 13.5rem; min-height: 3.45rem; border-radius: .9rem; padding: .58rem .72rem; white-space: normal; color: var(--wine-dark); font-size: .72rem; font-weight: 950; line-height: 1.13; text-align: left; text-transform: uppercase; box-shadow: 0 .35rem .7rem rgba(74,26,39,.05); }.category-button::before { content: 'CARDÁPIO'; display: block; margin-bottom: .18rem; color: var(--orange-deep); font-size: .53rem; letter-spacing: .08em; }.category-button:hover { transform: translateY(-2px); border-color: var(--wine); }.category-button.is-active { box-shadow: 0 .45rem .9rem rgba(151,0,57,.2); }.category-button.is-active::before { color: #ffd26a; }
+
+
+/* Fotos recortadas dos produtos. Mantém a inicial como fallback até uma imagem carregar. */
+.product-initial.is-hidden { opacity: 0; }
+.product-image--menu-photo { background: radial-gradient(circle at 50% 34%, rgba(255,255,255,.85), transparent 56%), linear-gradient(145deg, color-mix(in srgb, var(--card-tone, var(--orange)) 22%, white), var(--card-tone, var(--orange))); }
+.product-image--menu-photo::before { display: none; }
+.product-image--menu-photo::after { z-index: 3; }
+.menu-photo-showcase { position: absolute; inset: .2rem .12rem; z-index: 2; pointer-events: none; }
+.menu-photo-showcase-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; filter: drop-shadow(0 .28rem .22rem rgba(58, 20, 20, .2)); transition: opacity .6s ease; }
+.menu-photo-showcase-image.is-visible { opacity: 1; }
