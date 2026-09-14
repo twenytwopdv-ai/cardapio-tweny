@@ -322,6 +322,44 @@ function isStuffedCone(name) { return searchKey(name).includes('casquinha rechea
 function isTraditionalBigCone(name) { return searchKey(name).includes('cascao tradicional'); }
 function isTraditionalThinCone(name) { return searchKey(name).includes('casquinha tradicional'); }
 function isTraditionalConesSection(section) { return safeText(section).toLocaleUpperCase('pt-BR') === 'CASQUINHAS E CASCÕES TRADICIONAIS'; }
+function menuPhotoAssets(product) {
+  const name = searchKey(productName(product));
+  if (product.menuView === 'milk-shake') return [
+    'assets/milkshake-menta-cutout.png',
+    'assets/milkshake-maracuja-cutout.png',
+    'assets/milkshake-morango-cutout.png'
+  ];
+  if (product.menuView === 'milk-shake-cafe') return [
+    'assets/milkshake-cafe-leite-ninho-cutout.png', 'assets/milkshake-cafe-ovomaltine-cutout.png'];
+  if (name === 'up oreo') return ['assets/upmax-oreo-cutout.png'];
+  if (name === 'up deleite') return ['assets/up-deleite-cutout-v2.png'];
+  return [];
+}
+function addMenuPhotoVisual(node, product) {
+  const assets = menuPhotoAssets(product);
+  if (!assets.length) return;
+  const image = node.querySelector('.product-image'); const initial = image.querySelector('.product-initial');
+  image.classList.add('product-image--menu-photo');
+  const showcase = document.createElement('div'); showcase.className = 'menu-photo-showcase'; showcase.setAttribute('aria-hidden', 'true');
+  let loaded = 0;
+  const showInitialWhenEmpty = () => { if (!showcase.querySelector('img')) { showcase.remove(); initial.classList.remove('is-hidden'); } };
+  assets.forEach((source) => {
+    const photo = document.createElement('img'); photo.className = 'menu-photo-showcase-image'; photo.src = source; photo.alt = '';
+    photo.addEventListener('load', () => { loaded += 1; initial.classList.add('is-hidden'); if (loaded === 1) photo.classList.add('is-visible'); }, { once: true });
+    photo.addEventListener('error', () => { photo.remove(); window.setTimeout(showInitialWhenEmpty, 0); }, { once: true });
+    showcase.append(photo);
+  });
+  image.append(showcase);
+  if (assets.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  let current = 0;
+  const timer = window.setInterval(() => {
+    if (!showcase.isConnected) { window.clearInterval(timer); return; }
+    const available = [...showcase.querySelectorAll('img')];
+    if (available.length < 2) return;
+    current = (current + 1) % available.length;
+    available.forEach((photo, index) => photo.classList.toggle('is-visible', index === current));
+  }, 4200);
+}
 function addStuffedConeVisual(node, name) {
   if (!isStuffedCone(name)) return;
   const image = node.querySelector('.product-image'); const initial = image.querySelector('.product-initial');
@@ -388,6 +426,7 @@ function appendProductCard(product, index, categoryLabel = productCategory(produ
   addStuffedConeVisual(node, name);
   addTraditionalBigConeVisual(node, name);
   addTraditionalThinConeVisual(node, name);
+     addMenuPhotoVisual(node, product);
   node.querySelector('.add-button').addEventListener('click', () => { const next = { ...product, id }; Array.isArray(next.variations) && next.variations.length ? openOptions(next) : addToCart(next); }); ui.grid.append(node);
 }
 function renderCatalog() {
