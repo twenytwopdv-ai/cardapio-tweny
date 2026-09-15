@@ -641,11 +641,27 @@ function renderCart() {
 }
 function configureCheckout(store) {
   const methods = Array.isArray(store?.paymentMethods) ? store.paymentMethods : ['pix', 'dinheiro', 'credito', 'debito'];
-  const labels = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', transferencia: 'Transferência' }; ui.paymentOptions.innerHTML = '';
-  const online = methods.some((method) => ['pix', 'credito', 'crédito', 'debito', 'débito'].includes(safeText(method).toLocaleLowerCase('pt-BR')));
-  const visible = methods.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito'].includes(safeText(method).toLocaleLowerCase('pt-BR')));
-  if (online) visible.unshift('mercado_pago');
-  visible.forEach((method, index) => { const label = document.createElement('label'); const title = method === 'mercado_pago' ? 'PIX ou cartão' : (labels[method] || safeText(method)); label.innerHTML = `<input type="radio" name="payment" value="${safeText(method)}" ${index === 0 ? 'checked' : ''}><span>${title}</span>`; ui.paymentOptions.append(label); });
+  const normalized = methods.map((method) => safeText(method).toLocaleLowerCase('pt-BR'));
+  const configured = new Set(normalized);
+  const has = (...values) => values.some((value) => configured.has(value));
+  const labels = { dinheiro: 'Dinheiro', transferencia: 'Transferência' };
+  const choices = [];
+
+  // Online is deliberately a distinct option. Credit/debit selected below are
+  // charged by the store's card machine at handoff, never by Mercado Pago.
+  if (has('pix', 'credito', 'crédito', 'debito', 'débito')) choices.push({ value: 'mercado_pago', title: 'PIX ou cartão online', hint: 'Pague agora pelo Mercado Pago' });
+  if (has('credito', 'crédito')) choices.push({ value: 'credito_maquininha', title: 'Crédito na maquininha', hint: 'Pagar na entrega ou retirada' });
+  if (has('debito', 'débito')) choices.push({ value: 'debito_maquininha', title: 'Débito na maquininha', hint: 'Pagar na entrega ou retirada' });
+  normalized.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito'].includes(method)).forEach((method) => {
+    choices.push({ value: method, title: labels[method] || safeText(method), hint: '' });
+  });
+  if (!choices.length) choices.push({ value: 'dinheiro', title: 'Dinheiro', hint: '' });
+  ui.paymentOptions.innerHTML = '';
+  choices.forEach((choice, index) => {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="radio" name="payment" value="${choice.value}" ${index === 0 ? 'checked' : ''}><span><b>${choice.title}</b>${choice.hint ? `<small>${choice.hint}</small>` : ''}</span>`;
+    ui.paymentOptions.append(label);
+  });
   updateCashPaymentDetails();
 }
 function paymentMethodIsCash(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'dinheiro'; }
