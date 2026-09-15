@@ -989,8 +989,17 @@ async function startMercadoPayment(payload, attempt, checkoutForm) {
     const MercadoPago = await loadMercadoPagoSdk(); const mp = new MercadoPago(config.publicKey, { locale: 'pt-BR' }); const bricks = mp.bricks();
     state.mercadoBrickController = await bricks.create('payment', 'mercado-pago-brick', {
       initialization: { amount: Number((payload.totalCents / 100).toFixed(2)) },
-      customization: { paymentMethods: { creditCard: 'all', debitCard: 'all', bankTransfer: ['pix'], ticket: 'none' } },
-      callbacks: { onReady: () => {}, onError: () => {}, onSubmit: (data) => submitMercadoPayment(data) }
+      // Mercado Pago expects payment method filters as strings. In particular,
+      // Pix is `bankTransfer: 'pix'`, not an array. Passing the array made the
+      // SDK fail while searching the available payment methods.
+      customization: { paymentMethods: { creditCard: 'all', debitCard: 'all', bankTransfer: 'pix' } },
+      callbacks: {
+        onReady: () => {},
+        onError: (error) => { console.error('[Mercado Pago Brick]', error); },
+        // The Brick wraps its actual form fields in `{ selectedPaymentMethod,
+        // formData }`; only formData belongs in our server-side payment call.
+        onSubmit: ({ formData }) => submitMercadoPayment(formData),
+      }
     });
   } catch (error) { setOnlinePaymentModal(false); toggleSheet(ui.checkoutSheet, true); showFeedback(error.message || 'Não foi possível abrir o pagamento seguro.'); checkoutForm.querySelector('[type="submit"]').disabled = false; }
 }
