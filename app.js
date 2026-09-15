@@ -537,27 +537,73 @@ function variationRuleHint(rule) {
   if (rule.maxSelections) return rule.minSelections ? `Escolha de ${rule.minSelections} a ${rule.maxSelections}` : `Escolha até ${rule.maxSelections}`;
   return rule.minSelections ? `Escolha ao menos ${rule.minSelections}` : 'Opcional';
 }
+
+function variationChoiceGroup(rule) { return variationCategoryKey(rule?.choiceGroup ?? rule?.grupoEscolha ?? rule?.grupo_escolha); }
+function sharedChoiceGroups(product) {
+  const variationsByType = new Map();
+  (product?.variations || []).forEach((variation) => {
+    const type = variationCategoryKey(variation.type) || 'opção';
+    if (!variationsByType.has(type)) variationsByType.set(type, []);
+    variationsByType.get(type).push(variation);
+  });
+  const grouped = new Map();
+  (product?.variationRules || []).forEach((source) => {
+    const key = variationChoiceGroup(source);
+    const category = variationCategoryKey(source.category ?? source.categoria);
+    if (!key || !category || !variationsByType.has(category)) return;
+    if (!grouped.has(key)) grouped.set(key, { key, label: safeText(source.choiceGroup ?? source.grupoEscolha ?? source.grupo_escolha) || key, categories: new Set(), rule: variationRule(product, category), variations: [] });
+    grouped.get(key).categories.add(category);
+  });
+  return [...grouped.values()].map((group) => {
+    group.variations = [...group.categories].flatMap((category) => variationsByType.get(category) || []);
+    group.displayOrder = Math.min(...[...group.categories].map((category) => variationRule(product, category).displayOrder));
+    return group;
+  }).filter((group) => group.variations.length).sort((a, b) => a.displayOrder - b.displayOrder || a.label.localeCompare(b.label, 'pt-BR'));
+}
+function selectedVariationCount(variations) { return variations.filter((variation) => document.querySelector(`#options-form input[value="${variation.id}"]`)?.checked).length; }
+function selectionFollowsRule(variations, rule) { const selectedCount = selectedVariationCount(variations); return selectedCount >= rule.minSelections && (rule.maxSelections === null || selectedCount <= rule.maxSelections); }
+function sharedChoiceDescription(group) { return [...group.categories].map((category) => category.toLocaleUpperCase('pt-BR')).join(' OU '); }
 function optionsAreReady(product) {
   if (!product) return false;
-  const groups = new Map(); (product.variations || []).forEach((variation) => { const type = variationCategoryKey(variation.type) || 'opção'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); });
-  return [...groups].every(([type, variations]) => {
-    const rule = variationRule(product, type); const selectedCount = variations.filter((variation) => document.querySelector(`#options-form input[value="${variation.id}"]`)?.checked).length;
-    return selectedCount >= rule.minSelections && (rule.maxSelections === null || selectedCount <= rule.maxSelections);
-  });
+  const sharedGroups = sharedChoiceGroups(product);
+  const sharedCategories = new Set(sharedGroups.flatMap((group) => [...group.categories]));
+  const groups = new Map(); (product.variations || []).forEach((variation) => { const type = variationCategoryKey(variation.type) || 'opção'; if (sharedCategories.has(type)) return; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); });
+  return sharedGroups.every((group) => selectionFollowsRule(group.variations, group.rule)) && [...groups].every(([type, variations]) => selectionFollowsRule(variations, variationRule(product, type)));
 }
 function updateQuickAddButton() { ui.quickAdd.hidden = !optionsAreReady(state.pendingProduct); }
 function openOptions(product, options = {}) {
   const preselectedVariationIds = new Set((options.preselectedVariationIds || []).map((value) => String(value)));
   state.pendingProduct = product; ui.optionsTitle.textContent = productName(product); ui.optionsSubtitle.textContent = state.reorderActive ? 'Revise ou altere as opções antes de adicionar este item novamente.' : 'Escolha as opções que deseja neste pedido.'; ui.variationGroups.innerHTML = '';
-  const groups = new Map(); (product.variations || []).forEach((variation) => { const type = safeText(variation.type) || 'Opção'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); });
+  const sharedGroups = sharedChoiceGroups(product);
+  const sharedCategories = new Set(sharedGroups.flatMap((group) => [...group.categories]));
+  if (sharedGroups.length) ui.optionsSubtitle.textContent = `Escolha uma opção em cada grupo obrigatório. No SUNDAE: COMPLEMENTO OU CALDA DE FRUTA; os adicionais pagos continuam opcionais.`;
+  const groups = new Map(); (product.variations || []).forEach((variation) => { const normalizedType = variationCategoryKey(variation.type) || 'opção'; if (sharedCategories.has(normalizedType)) return; const type = safeText(variation.type) || 'Opção'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); });
   const orderedGroups = [...groups.entries()].sort(([typeA], [typeB]) => {
     const orderDiff = variationRule(product, typeA).displayOrder - variationRule(product, typeB).displayOrder;
     return orderDiff || safeText(typeA).localeCompare(safeText(typeB), 'pt-BR');
   });
   const testRecheioLayout = ['recheio da borda', 'recheio de dentro', 'sabor'].every((type) => groups.has(type));
   ui.variationGroups.classList.toggle('variation-groups--recheios-top', testRecheioLayout);
+  const choiceEntries = [
+    ...sharedGroups.map((group) => ({ kind: 'shared', group, order: group.displayOrder })),
+    ...orderedGroups.map(([type, variations]) => ({ kind: 'category', type, variations, order: variationRule(product, type).displayOrder }))
+  ].sort((a, b) => a.order - b.order || (a.kind === 'shared' ? a.group.label : a.type).localeCompare(b.kind === 'shared' ? b.group.label : b.type, 'pt-BR'));
   let groupIndex = 0;
-  orderedGroups.forEach(([type, variations]) => {
+  choiceEntries.forEach((entry) => {
+    if (entry.kind === 'shared') {
+      const { group: shared } = entry; const group = document.createElement('section'); group.className = 'variation-group variation-group--shared-choice'; group.dataset.variationType = `shared-${shared.key}`;
+      if (shared.variations.length > 1) group.classList.add('variation-group--grid');
+      const title = document.createElement('h3'); title.textContent = `Escolha 1: ${sharedChoiceDescription(shared)}`;
+      const hint = document.createElement('p'); hint.className = 'variation-rule-hint'; hint.textContent = [variationRuleHint(shared.rule), `Uma opção entre ${sharedChoiceDescription(shared).toLocaleLowerCase('pt-BR')}`, 'Incluso'].join(' • ');
+      const list = document.createElement('div'); list.className = 'variation-list';
+      shared.variations.forEach((variation) => {
+        const choice = document.createElement('label'); choice.className = 'variation-choice'; const price = Number(variation.priceAdditionalCents || 0) / 100;
+        const input = document.createElement('input'); input.type = shared.rule.selectionMode === 'unica' ? 'radio' : 'checkbox'; input.value = variation.id; input.name = `variation-group-${groupIndex}`; input.dataset.variationType = variationCategoryKey(variation.type); input.checked = preselectedVariationIds.has(String(variation.id));
+        const content = document.createElement('span'); content.className = 'variation-choice-content'; const label = document.createElement('span'); label.textContent = `${safeText(variation.type)}: ${variation.name}`; content.append(label); if (price) { const priceLabel = document.createElement('small'); priceLabel.textContent = money.format(price); content.append(priceLabel); } choice.append(input, content); list.append(choice);
+      });
+      group.append(title, hint, list); ui.variationGroups.append(group); groupIndex += 1; return;
+    }
+    const { type, variations } = entry;
     const rule = variationRule(product, type);
     const group = document.createElement('section'); group.className = 'variation-group'; group.dataset.variationType = variationCategoryKey(type);
     const title = document.createElement('h3'); title.textContent = type;
@@ -890,6 +936,6 @@ document.querySelectorAll('input[name="fulfillment"]').forEach((input) => input.
 ui.useCurrentLocation?.addEventListener('click', captureDeliveryLocation);
 ui.closeDeliveryMap?.addEventListener('click', closeDeliveryMapPicker);
 ui.confirmDeliveryLocation?.addEventListener('click', confirmDeliveryMapPoint);
-document.querySelector('#reload-catalog').addEventListener('click', loadCatalog); ui.catalogSearch?.addEventListener('input', () => { state.searchQuery = safeText(ui.catalogSearch.value); renderCategories(); renderCatalog(); }); ui.variationGroups.addEventListener('change', updateQuickAddButton); document.querySelector('#options-form').addEventListener('submit', (event) => { event.preventDefault(); const product = state.pendingProduct; if (!product) return; const groups = new Map(); (product.variations || []).forEach((variation) => { const type = variationCategoryKey(variation.type) || 'opção'; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); }); for (const [type, variations] of groups) { const rule = variationRule(product, type); const selectedCount = variations.filter((variation) => document.querySelector(`#options-form input[value="${variation.id}"]`)?.checked).length; if (selectedCount < rule.minSelections || (rule.maxSelections !== null && selectedCount > rule.maxSelections)) { ui.optionsSubtitle.textContent = `Revise ${type}: ${variationRuleHint(rule).toLocaleLowerCase('pt-BR')}.`; return; } } const selected = (product.variations || []).filter((variation) => document.querySelector(`#options-form input[value="${variation.id}"]`)?.checked); const reorderEntry = state.reorderActive; if (reorderEntry) { addReorderEntryToCart(reorderEntry, selected); state.reorderActive = null; toggleSheet(ui.optionsSheet, false); continueReorderFlow(); return; } addToCart(product, selected); toggleSheet(ui.optionsSheet, false); toggleSheet(ui.cartSheet, true); }); ui.checkoutButton.addEventListener('click', () => { resetOrderSent(); applyCustomerProfile(); updateCashPaymentDetails(); toggleSheet(ui.cartSheet, false); toggleSheet(ui.checkoutSheet, true); }); ui.checkoutForm.addEventListener('input', () => { state.orderAttempt = null; saveCustomerProfile(); updateCashPaymentDetails(); }); ui.checkoutForm.addEventListener('change', () => { state.orderAttempt = null; saveCustomerProfile(); updateCashPaymentDetails(); }); document.querySelector('#checkout-form').addEventListener('submit', submitOrder); ui.copyTrackingTicket.addEventListener('click', copyTrackingTicket);
+document.querySelector('#reload-catalog').addEventListener('click', loadCatalog); ui.catalogSearch?.addEventListener('input', () => { state.searchQuery = safeText(ui.catalogSearch.value); renderCategories(); renderCatalog(); }); ui.variationGroups.addEventListener('change', updateQuickAddButton); document.querySelector('#options-form').addEventListener('submit', (event) => { event.preventDefault(); const product = state.pendingProduct; if (!product) return; const sharedGroups = sharedChoiceGroups(product); const sharedCategories = new Set(sharedGroups.flatMap((group) => [...group.categories])); for (const shared of sharedGroups) { if (!selectionFollowsRule(shared.variations, shared.rule)) { ui.optionsSubtitle.textContent = `Revise ${sharedChoiceDescription(shared)}: ${variationRuleHint(shared.rule).toLocaleLowerCase('pt-BR')}.`; return; } } const groups = new Map(); (product.variations || []).forEach((variation) => { const type = variationCategoryKey(variation.type) || 'opção'; if (sharedCategories.has(type)) return; if (!groups.has(type)) groups.set(type, []); groups.get(type).push(variation); }); for (const [type, variations] of groups) { const rule = variationRule(product, type); if (!selectionFollowsRule(variations, rule)) { ui.optionsSubtitle.textContent = `Revise ${type}: ${variationRuleHint(rule).toLocaleLowerCase('pt-BR')}.`; return; } } const selected = (product.variations || []).filter((variation) => document.querySelector(`#options-form input[value="${variation.id}"]`)?.checked); const reorderEntry = state.reorderActive; if (reorderEntry) { addReorderEntryToCart(reorderEntry, selected); state.reorderActive = null; toggleSheet(ui.optionsSheet, false); continueReorderFlow(); return; } addToCart(product, selected); toggleSheet(ui.optionsSheet, false); toggleSheet(ui.cartSheet, true); }); ui.checkoutButton.addEventListener('click', () => { resetOrderSent(); applyCustomerProfile(); updateCashPaymentDetails(); toggleSheet(ui.cartSheet, false); toggleSheet(ui.checkoutSheet, true); }); ui.checkoutForm.addEventListener('input', () => { state.orderAttempt = null; saveCustomerProfile(); updateCashPaymentDetails(); }); ui.checkoutForm.addEventListener('change', () => { state.orderAttempt = null; saveCustomerProfile(); updateCashPaymentDetails(); }); document.querySelector('#checkout-form').addEventListener('submit', submitOrder); ui.copyTrackingTicket.addEventListener('click', copyTrackingTicket);
 appSheets().forEach((sheet) => { sheet.inert = sheet.getAttribute('aria-hidden') !== 'false'; });
 setFulfillment('pickup'); applyCustomerProfile(); renderCart(); loadCatalog();
