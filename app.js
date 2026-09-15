@@ -205,25 +205,33 @@ function confirmDeliveryMapPoint() {
   closeDeliveryMapPicker();
   renderDeliveryLocation();
 }
-function openDeliveryMapPicker() {
+function openDeliveryMapPicker(initialPoint = null, gpsWasRequested = false) {
   if (!ui.deliveryMapPicker) return;
   ui.deliveryMapPicker.hidden = false;
   ui.deliveryMapPicker.setAttribute('aria-hidden', 'false');
   if (!ensureDeliveryMap()) {
     closeDeliveryMapPicker();
-    captureDeliveryLocationDirect();
+    setDeliveryLocationStatus('Não foi possível abrir o mapa. Atualize a página para confirmar a localização da entrega.', 'warning');
     return;
   }
-  state.deliveryMapPoint = normalizeDeliveryLocation(state.deliveryLocation);
+  // The GPS reading is only a suggestion for the marker. It becomes part of
+  // the order only after the customer explicitly confirms it in the map.
+  state.deliveryMapPoint = normalizeDeliveryLocation(initialPoint) || normalizeDeliveryLocation(state.deliveryLocation);
   if (state.deliveryMapPoint) {
-    setDeliveryMapMarker(state.deliveryMapPoint.latitude, state.deliveryMapPoint.longitude, state.deliveryMapPoint.accuracy);
-    setDeliveryMapStatus('Você pode arrastar o marcador para o ponto exato.', 'success');
+    setDeliveryMapMarker(state.deliveryMapPoint.latitude, state.deliveryMapPoint.longitude, state.deliveryMapPoint.accuracy, state.deliveryMapPoint.source);
+    setDeliveryMapStatus('GPS encontrado. Confira ou arraste o marcador e toque em “Confirmar localização”.', 'success');
   } else {
     if (state.deliveryMapMarker) {
       state.deliveryMap.removeLayer(state.deliveryMapMarker);
       state.deliveryMapMarker = null;
     }
     if (ui.confirmDeliveryLocation) ui.confirmDeliveryLocation.disabled = true;
+    if (gpsWasRequested) {
+      void centerDeliveryMapOnStore();
+      setDeliveryMapStatus('Não foi possível usar o GPS. Toque no ponto correto no mapa e confirme a localização.', 'warning');
+      window.requestAnimationFrame(() => state.deliveryMap.invalidateSize());
+      return;
+    }
     setDeliveryMapStatus('Buscando sua localização… permita o acesso quando o navegador perguntar.', 'loading');
     state.deliveryMap.once('locationfound', (event) => {
       setDeliveryMapMarker(event.latlng.lat, event.latlng.lng, event.accuracy, 'browser');
@@ -242,31 +250,39 @@ function openDeliveryMapPicker() {
   }
   window.requestAnimationFrame(() => state.deliveryMap.invalidateSize());
 }
+function geolocationErrorMessage(error) {
+  if (error?.code === 1) return 'A localização foi bloqueada para este site. Libere a permissão nas configurações do navegador ou marque o ponto manualmente no mapa.';
+  if (error?.code === 2) return 'O aparelho não conseguiu determinar a localização agora. Verifique GPS e internet ou marque o ponto no mapa.';
+  return 'A localização demorou para responder. Tente novamente ou marque o ponto correto no mapa.';
+}
 function captureDeliveryLocationDirect() {
   if (!ui.useCurrentLocation || ui.useCurrentLocation.disabled) return;
   if (!window.isSecureContext || !navigator.geolocation) {
-    setDeliveryLocationStatus('Não foi possível acessar o GPS neste ambiente. Escolha o ponto correto no mapa para continuar.', 'warning');
+    setDeliveryLocationStatus('Este navegador não liberou o GPS neste ambiente. Atualize a página em HTTPS para confirmar a localização.', 'warning');
     return;
   }
   ui.useCurrentLocation.disabled = true;
   ui.useCurrentLocation.classList.add('is-loading');
-  setDeliveryLocationStatus('Buscando sua localização… permita o acesso quando o navegador perguntar.', 'loading');
+  setDeliveryLocationStatus('Pedindo acesso à localização do seu aparelho… permita quando o navegador perguntar.', 'loading');
   navigator.geolocation.getCurrentPosition((position) => {
-    state.deliveryLocation = normalizeDeliveryLocation(position.coords);
-    renderDeliveryLocation();
+    const point = normalizeDeliveryLocation(position.coords);
     ui.useCurrentLocation.disabled = false;
     ui.useCurrentLocation.classList.remove('is-loading');
+    if (!point) {
+      setDeliveryLocationStatus('O GPS retornou uma localização inválida. Escolha o ponto correto no mapa.', 'warning');
+      openDeliveryMapPicker(null, true);
+      return;
+    }
+    setDeliveryLocationStatus('Localização do aparelho encontrada. Confirme o ponto no mapa para continuar.', 'success');
+    openDeliveryMapPicker(point, true);
   }, (error) => {
-    state.deliveryLocation = null;
     ui.useCurrentLocation.disabled = false;
     ui.useCurrentLocation.classList.remove('is-loading');
-    const message = error?.code === 1
-      ? 'Permissão de localização não concedida. Escolha manualmente o ponto correto no mapa.'
-      : 'Não conseguimos obter sua localização agora. Escolha manualmente o ponto correto no mapa.';
-    setDeliveryLocationStatus(message, 'warning');
+    setDeliveryLocationStatus(geolocationErrorMessage(error), 'warning');
+    openDeliveryMapPicker(null, true);
   }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
-function captureDeliveryLocation() { openDeliveryMapPicker(); }
+function captureDeliveryLocation() { captureDeliveryLocationDirect(); }
 function setDeliveryFieldRequirements(isDelivery) {
   ui.deliveryFields?.querySelectorAll('input[name="address"], input[name="reference"]').forEach((input) => {
     input.disabled = !isDelivery;
