@@ -106,11 +106,12 @@ function setDeliveryLocationStatus(message, type = '') {
 function renderDeliveryLocation() {
   const point = normalizeDeliveryLocation(state.deliveryLocation);
   if (!point) {
-    setDeliveryLocationStatus('Opcional: use sua localização para ajudar a loja a encontrar o endereço.');
+    setDeliveryLocationStatus('Obrigatório: confirme no mapa a localização exata da entrega.', 'warning');
     return;
   }
   const accuracy = point.accuracy != null ? ` Precisão aproximada: ${Math.round(point.accuracy)} m.` : '';
-  setDeliveryLocationStatus(`Localização capturada. Confira o endereço e o número antes de enviar.${accuracy}`, 'success');
+  const source = point.source === 'map' ? 'Ponto confirmado manualmente no mapa.' : 'Localização atual obtida pelo GPS do aparelho.';
+  setDeliveryLocationStatus(`${source} Confira o endereço e o número antes de enviar.${accuracy}`, 'success');
 }
 function setDeliveryMapStatus(message, type = '') {
   if (!ui.deliveryMapStatus) return;
@@ -235,14 +236,16 @@ function openDeliveryMapPicker() {
         : 'Não foi possível obter o GPS. Toque no mapa para escolher o ponto manualmente.';
       setDeliveryMapStatus(message, 'warning');
     });
-    state.deliveryMap.locate({ enableHighAccuracy: true, setView: true, maxZoom: 18, timeout: 10000 });
+    // Leaflet delegates to navigator.geolocation. maximumAge: 0 asks the
+    // browser for a fresh position from the current device, not a cached one.
+    state.deliveryMap.locate({ enableHighAccuracy: true, setView: true, maxZoom: 18, timeout: 10000, maximumAge: 0 });
   }
   window.requestAnimationFrame(() => state.deliveryMap.invalidateSize());
 }
 function captureDeliveryLocationDirect() {
   if (!ui.useCurrentLocation || ui.useCurrentLocation.disabled) return;
   if (!window.isSecureContext || !navigator.geolocation) {
-    setDeliveryLocationStatus('Não foi possível acessar o GPS neste ambiente. Preencha o endereço manualmente.', 'warning');
+    setDeliveryLocationStatus('Não foi possível acessar o GPS neste ambiente. Escolha o ponto correto no mapa para continuar.', 'warning');
     return;
   }
   ui.useCurrentLocation.disabled = true;
@@ -258,16 +261,23 @@ function captureDeliveryLocationDirect() {
     ui.useCurrentLocation.disabled = false;
     ui.useCurrentLocation.classList.remove('is-loading');
     const message = error?.code === 1
-      ? 'Permissão de localização não concedida. Você pode informar o endereço manualmente.'
-      : 'Não conseguimos obter sua localização agora. Confira o endereço manualmente.';
+      ? 'Permissão de localização não concedida. Escolha manualmente o ponto correto no mapa.'
+      : 'Não conseguimos obter sua localização agora. Escolha manualmente o ponto correto no mapa.';
     setDeliveryLocationStatus(message, 'warning');
-  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 });
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
 }
 function captureDeliveryLocation() { openDeliveryMapPicker(); }
+function setDeliveryFieldRequirements(isDelivery) {
+  ui.deliveryFields?.querySelectorAll('input[name="address"], input[name="reference"]').forEach((input) => {
+    input.disabled = !isDelivery;
+    input.required = isDelivery;
+  });
+}
 function setFulfillment(type) {
   state.fulfillment = type === 'delivery' ? 'delivery' : 'pickup';
   document.querySelectorAll('input[name="fulfillment"]').forEach((input) => { input.checked = input.value === state.fulfillment; });
   ui.deliveryFields.hidden = state.fulfillment !== 'delivery';
+  setDeliveryFieldRequirements(state.fulfillment === 'delivery');
   renderDeliveryLocation();
 }
 const MENU_SECTION_ORDER = ['CASQUINHAS E CASCÕES TRADICIONAIS', 'CASQUINHAS E CASCÕES RECHEADOS', 'MILK SHAKES', 'MILK SHAKES DE CAFÉ', 'SUNDAES', 'UP MAX TRADICIONAL', 'UP MAX GOURMET', 'OUTROS'];
@@ -649,7 +659,7 @@ function configureCheckout(store) {
 
   // Online is deliberately a distinct option. Credit/debit selected below are
   // charged by the store's card machine at handoff, never by Mercado Pago.
-  if (has('pix', 'credito', 'crédito', 'debito', 'débito')) choices.push({ value: 'mercado_pago', title: 'PIX ou cartão online', hint: 'Pague agora pelo Mercado Pago' });
+  if (has('pix', 'credito', 'crédito', 'debito', 'débito')) choices.push({ value: 'mercado_pago', title: 'PIX ou cartão online', hint: 'Pague agora via PIX ou cartão' });
   if (has('credito', 'crédito')) choices.push({ value: 'credito_maquininha', title: 'Crédito na maquininha', hint: 'Pagar na entrega ou retirada' });
   if (has('debito', 'débito')) choices.push({ value: 'debito_maquininha', title: 'Débito na maquininha', hint: 'Pagar na entrega ou retirada' });
   normalized.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito'].includes(method)).forEach((method) => {
@@ -666,6 +676,10 @@ function configureCheckout(store) {
 }
 function paymentMethodIsCash(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'dinheiro'; }
 function paymentMethodIsMercadoPago(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'mercado_pago'; }
+function fullNameIsValid(value) {
+  const words = safeText(value).split(/\s+/).filter((word) => word.replace(/[^A-Za-zÀ-ÿ]/g, '').length >= 2);
+  return words.length >= 2;
+}
 function currencyInputToCents(value) {
   const raw = safeText(value).replace(/R\$\s*/gi, '').replace(/\s/g, '');
   if (!raw) return null;
@@ -1021,11 +1035,17 @@ async function startMercadoPayment(payload, attempt, checkoutForm) {
 }
 async function submitOrder(event) {
   event.preventDefault(); if (!state.cart.length) return; ui.feedback.hidden = true; const checkoutForm = event.currentTarget; const form = new FormData(checkoutForm); const submit = checkoutForm.querySelector('[type="submit"]'); const totalCents = Math.round(cartTotal() * 100); const paymentMethod = safeText(form.get('payment')); const cashAmountReceivedCents = currencyInputToCents(form.get('cashAmountReceived'));
+  const customerName = safeText(form.get('name')); const customerPhone = safeText(form.get('phone')); const deliveryAddress = safeText(form.get('address')); const deliveryReference = safeText(form.get('reference'));
+  const locationPoint = state.fulfillment === 'delivery' ? normalizeDeliveryLocation(state.deliveryLocation) : null;
+  if (!fullNameIsValid(customerName)) { showFeedback('Informe seu nome completo para identificar o pedido.'); checkoutForm.querySelector('[name="name"]')?.focus(); return; }
+  if (customerPhone.replace(/\D/g, '').length < 10) { showFeedback('Informe um WhatsApp válido para retorno da loja.'); checkoutForm.querySelector('[name="phone"]')?.focus(); return; }
+  if (state.fulfillment === 'delivery' && deliveryAddress.length < 5) { showFeedback('Informe o endereço completo da entrega.'); checkoutForm.querySelector('[name="address"]')?.focus(); return; }
+  if (state.fulfillment === 'delivery' && deliveryReference.length < 2) { showFeedback('Informe um ponto de referência para a entrega.'); checkoutForm.querySelector('[name="reference"]')?.focus(); return; }
+  if (state.fulfillment === 'delivery' && !locationPoint) { showFeedback('Confirme a localização da entrega no mapa antes de enviar.'); ui.useCurrentLocation?.focus(); return; }
   if (paymentMethodIsCash(paymentMethod) && (cashAmountReceivedCents === null || cashAmountReceivedCents <= 0)) { showFeedback('Informe o valor que o cliente vai entregar em dinheiro.'); ui.cashAmountReceived?.focus(); return; }
   if (paymentMethodIsCash(paymentMethod) && cashAmountReceivedCents < totalCents) { showFeedback(`O valor em dinheiro não cobre o pedido. Faltam ${money.format((totalCents - cashAmountReceivedCents) / 100)}.`); ui.cashAmountReceived?.focus(); return; }
   submit.disabled = true;
-  const locationPoint = state.fulfillment === 'delivery' ? normalizeDeliveryLocation(state.deliveryLocation) : null;
-  const payload = { fulfillment: { type: state.fulfillment }, customer: { name: safeText(form.get('name')), phone: safeText(form.get('phone')) }, location: { address: safeText(form.get('address')), reference: safeText(form.get('reference')), coordinates: locationPoint }, payment: { method: paymentMethod, cashAmountReceivedCents: paymentMethodIsCash(paymentMethod) ? cashAmountReceivedCents : null }, note: safeText(form.get('note')), items: state.cart.map(({ product, quantity, selectedVariations }) => ({ productId: productId(product), quantity, variationIds: (selectedVariations || []).map((variation) => variation.id) })), totalCents };
+  const payload = { fulfillment: { type: state.fulfillment }, customer: { name: customerName, phone: customerPhone }, location: { address: deliveryAddress, reference: deliveryReference, coordinates: locationPoint }, payment: { method: paymentMethod, cashAmountReceivedCents: paymentMethodIsCash(paymentMethod) ? cashAmountReceivedCents : null }, note: safeText(form.get('note')), items: state.cart.map(({ product, quantity, selectedVariations }) => ({ productId: productId(product), quantity, variationIds: (selectedVariations || []).map((variation) => variation.id) })), totalCents };
   toggleSheet(ui.checkoutSheet, false);
   saveCustomerProfile(checkoutForm);
   const attempt = state.orderAttempt || makeOrderAttempt(); state.orderAttempt = attempt;
