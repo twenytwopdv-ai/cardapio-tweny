@@ -1,7 +1,7 @@
 /* Em produção, runtime-config.js aponta para a API HTTPS do painel. No modo
    local continuamos usando o servidor de testes sem mudar a experiência. */
 const ORDERING_API = String(window.__TWENY_MENU_API__ || '/api/v1/menu').replace(/\/+$/, '');
-const state = { store: null, catalog: [], activeCategory: 'all', catalogHomeScrollY: 0, searchQuery: '', cart: [], fulfillment: 'pickup', deliveryLocation: null, deliveryMap: null, deliveryMapMarker: null, deliveryMapPoint: null, pendingProduct: null, reorderQueue: [], reorderActive: null, lockedScrollY: null, ticketCode: '', ticketTrackingToken: '', ticketPoll: null, ticketStatus: 'pending', ticketFulfillment: 'pickup', orderAttempt: null };
+const state = { store: null, catalog: [], activeCategory: 'all', catalogHomeScrollY: 0, searchQuery: '', cart: [], fulfillment: 'pickup', deliveryLocation: null, deliveryMap: null, deliveryMapMarker: null, deliveryMapPoint: null, pendingProduct: null, reorderQueue: [], reorderActive: null, lockedScrollY: null, ticketCode: '', ticketTrackingToken: '', ticketPoll: null, ticketStatus: 'pending', ticketFulfillment: 'pickup', orderAttempt: null, onlinePayment: null, mercadoBrickController: null };
 const ORDER_HISTORY_STORAGE_KEY = 'tweny_menu_order_history_v1';
 const CUSTOMER_PROFILE_STORAGE_KEY = 'tweny_menu_customer_profile_v1';
 const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -12,7 +12,8 @@ const ui = {
   cartCount: document.querySelector('#cart-count'), cartDock: document.querySelector('#cart-dock'), cartDockLabel: document.querySelector('#cart-dock-label'), cartDockTotal: document.querySelector('#cart-dock-total'), cartSheet: document.querySelector('#cart-sheet'), optionsSheet: document.querySelector('#options-sheet'), checkoutSheet: document.querySelector('#checkout-sheet'), myOrdersSheet: document.querySelector('#my-orders-sheet'), myOrdersActive: document.querySelector('#my-orders-active-list'), myOrdersHistory: document.querySelector('#my-orders-history-list'), myOrdersActiveCount: document.querySelector('#my-orders-active-count'), myOrdersHistoryCount: document.querySelector('#my-orders-history-count'),
   cartItems: document.querySelector('#cart-items'), cartTotal: document.querySelector('#cart-total'), checkoutButton: document.querySelector('#checkout-button'),
   deliveryFields: document.querySelector('#delivery-fields'), useCurrentLocation: document.querySelector('#use-current-location'), deliveryLocationStatus: document.querySelector('#delivery-location-status'), deliveryMapPicker: document.querySelector('#delivery-map-picker'), deliveryMapCanvas: document.querySelector('#delivery-map-canvas'), deliveryMapStatus: document.querySelector('#delivery-map-status'), closeDeliveryMap: document.querySelector('#close-delivery-map'), confirmDeliveryLocation: document.querySelector('#confirm-delivery-location'), paymentOptions: document.querySelector('#payment-options'), cashPaymentDetails: document.querySelector('#cash-payment-details'), cashAmountReceived: document.querySelector('#cash-amount-received'), cashPaymentSummary: document.querySelector('#cash-payment-summary'), feedback: document.querySelector('#checkout-feedback'), checkoutForm: document.querySelector('#checkout-form'), orderSent: document.querySelector('#order-sent'), orderStatusCopy: document.querySelector('#order-status-copy'), orderTicketCode: document.querySelector('#order-ticket-code'), orderSending: document.querySelector('#order-sending-overlay'), trackingModal: document.querySelector('#order-tracking-modal'), trackingStatus: document.querySelector('#order-tracking-status'), trackingLabel: document.querySelector('#order-tracking-label'), trackingCopy: document.querySelector('#order-tracking-copy'), trackingTicketCode: document.querySelector('#tracking-ticket-code'), trackingSteps: document.querySelector('#order-tracking-steps'), trackingReason: document.querySelector('#order-tracking-reason'), copyTrackingTicket: document.querySelector('#copy-tracking-ticket'), trackingStep4Title: document.querySelector('#tracking-step-4-title'), trackingStep4Copy: document.querySelector('#tracking-step-4-copy'), trackingStep5Title: document.querySelector('#tracking-step-5-title'), trackingStep5Copy: document.querySelector('#tracking-step-5-copy'),
-  optionsTitle: document.querySelector('#options-title'), optionsSubtitle: document.querySelector('#options-subtitle'), variationGroups: document.querySelector('#variation-groups'), quickAdd: document.querySelector('#options-quick-add')
+  optionsTitle: document.querySelector('#options-title'), optionsSubtitle: document.querySelector('#options-subtitle'), variationGroups: document.querySelector('#variation-groups'), quickAdd: document.querySelector('#options-quick-add'),
+  onlinePaymentModal: document.querySelector('#online-payment-modal'), mercadoPagoBrick: document.querySelector('#mercado-pago-brick'), pixPaymentDetails: document.querySelector('#pix-payment-details'), pixPaymentQr: document.querySelector('#pix-payment-qr'), pixPaymentCopyCode: document.querySelector('#pix-payment-copy-code'), copyPixCode: document.querySelector('#copy-pix-code')
 };
 function appSheets() { return [ui.cartSheet, ui.optionsSheet, ui.checkoutSheet, ui.myOrdersSheet].filter(Boolean); }
 
@@ -641,10 +642,14 @@ function renderCart() {
 function configureCheckout(store) {
   const methods = Array.isArray(store?.paymentMethods) ? store.paymentMethods : ['pix', 'dinheiro', 'credito', 'debito'];
   const labels = { pix: 'PIX', dinheiro: 'Dinheiro', credito: 'Crédito', debito: 'Débito', transferencia: 'Transferência' }; ui.paymentOptions.innerHTML = '';
-  methods.forEach((method, index) => { const label = document.createElement('label'); label.innerHTML = `<input type="radio" name="payment" value="${safeText(method)}" ${index === 0 ? 'checked' : ''}><span>${labels[method] || safeText(method)}</span>`; ui.paymentOptions.append(label); });
+  const online = methods.some((method) => ['pix', 'credito', 'crédito', 'debito', 'débito'].includes(safeText(method).toLocaleLowerCase('pt-BR')));
+  const visible = methods.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito'].includes(safeText(method).toLocaleLowerCase('pt-BR')));
+  if (online) visible.unshift('mercado_pago');
+  visible.forEach((method, index) => { const label = document.createElement('label'); const title = method === 'mercado_pago' ? 'PIX ou cartão' : (labels[method] || safeText(method)); label.innerHTML = `<input type="radio" name="payment" value="${safeText(method)}" ${index === 0 ? 'checked' : ''}><span>${title}</span>`; ui.paymentOptions.append(label); });
   updateCashPaymentDetails();
 }
 function paymentMethodIsCash(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'dinheiro'; }
+function paymentMethodIsMercadoPago(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'mercado_pago'; }
 function currencyInputToCents(value) {
   const raw = safeText(value).replace(/R\$\s*/gi, '').replace(/\s/g, '');
   if (!raw) return null;
@@ -734,7 +739,7 @@ function makeOrderAttempt() {
     : `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`.replace(/[^a-z0-9]/gi, '').padEnd(32, 'x');
   return { id, trackingToken };
 }
-function historyStatusLabel(status) { return ({ pending: 'Aguardando confirmação', accepted: 'Aceito · em preparo', in_cart: 'Em preparo', on_hold: 'Pedido reservado', ready_for_pickup: 'Pronto para retirada', ready_for_delivery: 'Preparado · aguardando entrega', out_for_delivery: 'Saiu para entrega', picked_up: 'Retirado', delivered: 'Entregue', completed: 'Concluído', rejected: 'Recusado', cancelled: 'Cancelado' })[status] || 'Em atualização'; }
+function historyStatusLabel(status) { return ({ payment_pending: 'Aguardando pagamento', payment_rejected: 'Pagamento não aprovado', payment_cancelled: 'Pagamento cancelado', pending: 'Aguardando confirmação', accepted: 'Aceito · em preparo', in_cart: 'Em preparo', on_hold: 'Pedido reservado', ready_for_pickup: 'Pronto para retirada', ready_for_delivery: 'Preparado · aguardando entrega', out_for_delivery: 'Saiu para entrega', picked_up: 'Retirado', delivered: 'Entregue', completed: 'Concluído', rejected: 'Recusado', cancelled: 'Cancelado' })[status] || 'Em atualização'; }
 function historyFulfillmentLabel(fulfillment) { return fulfillment === 'delivery' ? 'Entrega' : 'Retirada na loja'; }
 function historyDateLabel(value) { try { return new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch (_) { return 'Data indisponível'; } }
 function renderHistoryItems(items = []) {
@@ -824,7 +829,7 @@ function historyCard(order) {
   if (Array.isArray(order.items) && order.items.length) main.append(renderHistoryItems(order.items));
   const side = document.createElement('div'); side.className = 'my-order-side';
   const total = document.createElement('strong'); total.className = 'my-order-total'; total.textContent = money.format(Number(order.totalCents || 0) / 100);
-  const isFinished = !new Set(['pending', 'accepted', 'in_cart', 'on_hold', 'ready_for_pickup', 'ready_for_delivery', 'out_for_delivery']).has(order.status);
+  const isFinished = !new Set(['payment_pending', 'pending', 'accepted', 'in_cart', 'on_hold', 'ready_for_pickup', 'ready_for_delivery', 'out_for_delivery']).has(order.status);
   const action = document.createElement('button'); action.type = 'button'; action.className = 'my-order-track'; action.textContent = isFinished ? 'Pedir novamente' : 'Acompanhar'; action.addEventListener('click', () => {
     if (isFinished) { void reorderFromHistory(order); return; }
     toggleSheet(ui.myOrdersSheet, false); watchTicket(order.ticketCode, order.status || 'pending', order.fulfillment || 'pickup');
@@ -832,7 +837,7 @@ function historyCard(order) {
   side.append(total, action); card.append(main, side); return card;
 }
 function renderMyOrders(orders = []) {
-  const activeStatuses = new Set(['pending', 'accepted', 'in_cart', 'on_hold', 'ready_for_pickup', 'ready_for_delivery', 'out_for_delivery']); const active = orders.filter((order) => activeStatuses.has(order.status)); const history = orders.filter((order) => !activeStatuses.has(order.status));
+  const activeStatuses = new Set(['payment_pending', 'pending', 'accepted', 'in_cart', 'on_hold', 'ready_for_pickup', 'ready_for_delivery', 'out_for_delivery']); const active = orders.filter((order) => activeStatuses.has(order.status)); const history = orders.filter((order) => !activeStatuses.has(order.status));
   const renderList = (target, records, emptyText) => { target.replaceChildren(); if (!records.length) { const empty = document.createElement('p'); empty.className = 'my-orders-empty'; empty.textContent = emptyText; target.append(empty); return; } records.forEach((order) => target.append(historyCard(order))); };
   ui.myOrdersActiveCount.textContent = String(active.length); ui.myOrdersHistoryCount.textContent = String(history.length);
   renderList(ui.myOrdersActive, active, 'Nenhum pedido em andamento neste celular.'); renderList(ui.myOrdersHistory, history, 'Quando um pedido for finalizado, ele aparecerá aqui.');
@@ -849,6 +854,9 @@ function openMyOrders() { toggleSheet(ui.myOrdersSheet, true); void loadMyOrders
 function normalizeTicketFulfillment(fulfillment) { return safeText(fulfillment).toLocaleLowerCase('pt-BR') === 'delivery' ? 'delivery' : 'pickup'; }
 function ticketMessage(status, reason = '', fulfillment = state.ticketFulfillment) {
   const delivery = normalizeTicketFulfillment(fulfillment) === 'delivery';
+  if (status === 'payment_pending') return 'Aguardando a confirmação do pagamento. Assim que ele for aprovado, a loja receberá seu pedido.';
+  if (status === 'payment_rejected') return 'O pagamento não foi aprovado. Você pode tentar novamente com outro meio de pagamento.';
+  if (status === 'payment_cancelled') return 'Este pagamento foi cancelado. Faça um novo pedido para tentar novamente.';
   if (status === 'accepted') return 'Pedido aceito! Ele já está sendo preparado para você.';
   if (status === 'in_cart') return delivery ? 'Seu pedido está sendo preparado para envio.' : 'Seu pedido está sendo preparado para retirada.';
   if (status === 'on_hold') return 'Seu pedido está confirmado e reservado. A loja vai retomar o preparo em breve.';
@@ -863,6 +871,9 @@ function ticketMessage(status, reason = '', fulfillment = state.ticketFulfillmen
   return 'Pedido enviado com sucesso. Aguarde a confirmação da loja.';
 }
 function ticketLabel(status) {
+  if (status === 'payment_pending') return 'Aguardando pagamento';
+  if (status === 'payment_rejected') return 'Pagamento não aprovado';
+  if (status === 'payment_cancelled') return 'Pagamento cancelado';
   if (status === 'accepted') return 'Pedido aceito!';
   if (status === 'in_cart') return 'Pedido em preparo';
   if (status === 'on_hold') return 'Pedido reservado';
@@ -876,7 +887,7 @@ function ticketLabel(status) {
   if (status === 'cancelled') return 'Pedido cancelado';
   return 'Pedido enviado com sucesso!';
 }
-function ticketStep(status) { return ({ pending: 1, accepted: 2, in_cart: 3, on_hold: 3, ready_for_pickup: 4, ready_for_delivery: 4, out_for_delivery: 4, picked_up: 5, delivered: 5, completed: 5 })[status] || 1; }
+function ticketStep(status) { return ({ payment_pending: 1, pending: 1, accepted: 2, in_cart: 3, on_hold: 3, ready_for_pickup: 4, ready_for_delivery: 4, out_for_delivery: 4, picked_up: 5, delivered: 5, completed: 5 })[status] || 1; }
 function updateTrackingSteps(fulfillment, status = state.ticketStatus) {
   const delivery = normalizeTicketFulfillment(fulfillment) === 'delivery';
   const outForDelivery = status === 'out_for_delivery';
@@ -890,12 +901,12 @@ function renderTicketStatus(ticketCode, status = 'pending', reason = '', fulfill
   updateTrackingSteps(state.ticketFulfillment, state.ticketStatus);
   ui.orderTicketCode.textContent = state.ticketCode || '—'; ui.orderStatusCopy.textContent = ticketMessage(state.ticketStatus, reason, state.ticketFulfillment);
   ui.trackingTicketCode.textContent = state.ticketCode || '—'; ui.trackingStatus.dataset.status = state.ticketStatus; ui.trackingLabel.textContent = ticketLabel(state.ticketStatus); ui.trackingCopy.textContent = ticketMessage(state.ticketStatus, reason, state.ticketFulfillment);
-  const rejected = state.ticketStatus === 'rejected'; const currentStep = ticketStep(state.ticketStatus);
+  const rejected = ['rejected', 'payment_rejected', 'payment_cancelled'].includes(state.ticketStatus); const currentStep = ticketStep(state.ticketStatus);
   ui.trackingSteps.classList.toggle('is-rejected', rejected);
   ui.trackingSteps.querySelectorAll('[data-step]').forEach((step) => {
     const number = Number(step.dataset.step || 0); step.classList.toggle('is-done', !rejected && number < currentStep); step.classList.toggle('is-current', !rejected && number === currentStep);
   });
-  ui.trackingReason.hidden = !rejected; ui.trackingReason.textContent = rejected ? `Motivo informado pela loja: ${safeText(reason) || 'Não informado.'}` : '';
+  ui.trackingReason.hidden = !rejected; ui.trackingReason.textContent = rejected ? `Motivo: ${safeText(reason) || 'Pagamento não aprovado ou cancelado.'}` : '';
   ui.checkoutForm.hidden = true; ui.orderSent.hidden = true;
   updateRememberedOrder(state.ticketCode, { status: state.ticketStatus, reason: safeText(reason), fulfillment: state.ticketFulfillment });
 }
@@ -904,7 +915,8 @@ async function refreshTicketStatus() {
   try {
     const response = await fetch(`${ORDERING_API}/orders/${encodeURIComponent(state.ticketCode)}`, { headers: trackingHeaders(state.ticketTrackingToken), cache: 'no-store' });
     const result = await response.json().catch(() => ({})); if (!response.ok || !result.success) return;
-    renderTicketStatus(result.ticketCode || state.ticketCode, result.status, result.reason, result.fulfillmentType || state.ticketFulfillment);
+    const previous = state.ticketStatus; renderTicketStatus(result.ticketCode || state.ticketCode, result.status, result.reason, result.fulfillmentType || state.ticketFulfillment);
+    if (previous === 'payment_pending' && result.status !== 'payment_pending' && ui.onlinePaymentModal && !ui.onlinePaymentModal.hidden) { setOnlinePaymentModal(false); setTrackingModal(true); }
     if (['rejected', 'cancelled', 'picked_up', 'delivered', 'completed'].includes(result.status)) stopTicketPolling();
   } catch (_) {}
 }
@@ -918,6 +930,70 @@ async function copyTrackingTicket() {
   try { await navigator.clipboard.writeText(ticket); } catch (_) { const field = document.createElement('textarea'); field.value = ticket; field.style.position = 'fixed'; field.style.opacity = '0'; document.body.append(field); field.select(); document.execCommand('copy'); field.remove(); }
   const button = ui.copyTrackingTicket; button.textContent = 'Ticket copiado!'; window.setTimeout(() => { button.textContent = 'Copiar ticket'; }, 1800);
 }
+function setOnlinePaymentModal(isOpen) {
+  if (!ui.onlinePaymentModal) return;
+  ui.onlinePaymentModal.hidden = !isOpen; ui.onlinePaymentModal.setAttribute('aria-hidden', String(!isOpen));
+  const hasOpenLayer = appSheets().some((item) => item.getAttribute('aria-hidden') === 'false') || !ui.trackingModal.hidden || isOpen;
+  setPageScrollLocked(hasOpenLayer);
+  if (isOpen) focusModalControl(ui.onlinePaymentModal);
+}
+function closeOnlinePayment() {
+  const hasPendingPix = state.ticketCode && state.ticketStatus === 'payment_pending';
+  setOnlinePaymentModal(false); state.mercadoBrickController?.unmount?.(); state.mercadoBrickController = null;
+  if (hasPendingPix) { state.onlinePayment = null; setTrackingModal(true); return; }
+  const checkoutForm = state.onlinePayment?.checkoutForm;
+  state.onlinePayment = null;
+  if (checkoutForm) {
+    toggleSheet(ui.checkoutSheet, true);
+    checkoutForm.querySelector('[type="submit"]').disabled = false;
+  }
+}
+async function loadMercadoPagoSdk() {
+  if (window.MercadoPago) return window.MercadoPago;
+  const script = [...document.scripts].find((item) => item.src.includes('sdk.mercadopago.com/js/v2'));
+  if (!script) throw new Error('Não foi possível carregar o pagamento seguro.');
+  await new Promise((resolve, reject) => { script.addEventListener('load', resolve, { once: true }); script.addEventListener('error', reject, { once: true }); window.setTimeout(() => reject(new Error('timeout')), 12000); });
+  if (!window.MercadoPago) throw new Error('O Mercado Pago não respondeu. Verifique sua conexão e tente novamente.');
+  return window.MercadoPago;
+}
+function submittedCartItems() { return state.cart.map((item) => ({ productName: productName(item.product), quantity: item.quantity, variations: (item.selectedVariations || []).map((variation) => ({ type: variation.type, name: variation.name })) })); }
+function completeSubmittedOrder(result, payload, attempt, items) {
+  const trackingToken = safeText(result.trackingToken || attempt.trackingToken);
+  rememberOrder({ ticketCode: result.ticketCode, status: result.status || 'pending', totalCents: result.totalCents ?? payload.totalCents, fulfillment: payload.fulfillment.type, trackingToken, items });
+  state.orderAttempt = null; state.cart = []; renderCart(); ui.checkoutForm.reset(); applyCustomerProfile(); state.deliveryLocation = null; setFulfillment('pickup');
+  try { localStorage.setItem('tweny_menu_last_ticket', result.ticketCode); } catch (_) {}
+  return trackingToken;
+}
+async function submitMercadoPayment(formData) {
+  const online = state.onlinePayment; if (!online) throw new Error('A sessão de pagamento expirou. Tente novamente.');
+  setOrderSending(true);
+  try {
+    const response = await fetch(`${ORDERING_API}/payments`, { method: 'POST', headers: { 'content-type': 'application/json', Accept: 'application/json', 'idempotency-key': online.attempt.id, 'x-order-tracking-token': online.attempt.trackingToken }, body: JSON.stringify({ order: online.payload, formData }) });
+    const result = await response.json().catch(() => ({})); if (!response.ok || !result.success || !result.ticketCode) throw new Error(result.error || 'Não foi possível iniciar o pagamento.');
+    const trackingToken = completeSubmittedOrder(result, online.payload, online.attempt, online.items);
+    const qrCode = safeText(result.payment?.qrCode); const qrImage = safeText(result.payment?.qrCodeBase64);
+    if (qrCode && qrImage) {
+      ui.mercadoPagoBrick.hidden = true; ui.pixPaymentDetails.hidden = false; ui.pixPaymentQr.src = `data:image/png;base64,${qrImage}`; ui.pixPaymentCopyCode.value = qrCode;
+      state.ticketCode = result.ticketCode; state.ticketTrackingToken = trackingToken; state.ticketStatus = result.status || 'payment_pending'; state.ticketFulfillment = online.payload.fulfillment.type;
+      stopTicketPolling(); state.ticketPoll = window.setInterval(refreshTicketStatus, 5000); void refreshTicketStatus();
+    } else { setOnlinePaymentModal(false); watchTicket(result.ticketCode, result.status || 'pending', online.payload.fulfillment.type, trackingToken); }
+    state.onlinePayment = null;
+  } catch (error) { throw error; } finally { setOrderSending(false); }
+}
+async function startMercadoPayment(payload, attempt, checkoutForm) {
+  setOnlinePaymentModal(true); ui.pixPaymentDetails.hidden = true; ui.mercadoPagoBrick.hidden = false; ui.mercadoPagoBrick.replaceChildren();
+  const items = submittedCartItems(); state.onlinePayment = { payload, attempt, items, checkoutForm };
+  try {
+    const response = await fetch(`${ORDERING_API}/payment-config`, { headers: { Accept: 'application/json' }, cache: 'no-store' }); const config = await response.json().catch(() => ({}));
+    if (!response.ok || !config.enabled || !safeText(config.publicKey)) throw new Error(config.error || 'Pagamento online indisponível no momento.');
+    const MercadoPago = await loadMercadoPagoSdk(); const mp = new MercadoPago(config.publicKey, { locale: 'pt-BR' }); const bricks = mp.bricks();
+    state.mercadoBrickController = await bricks.create('payment', 'mercado-pago-brick', {
+      initialization: { amount: Number((payload.totalCents / 100).toFixed(2)) },
+      customization: { paymentMethods: { creditCard: 'all', debitCard: 'all', bankTransfer: ['pix'], ticket: 'none' } },
+      callbacks: { onReady: () => {}, onError: () => {}, onSubmit: (data) => submitMercadoPayment(data) }
+    });
+  } catch (error) { setOnlinePaymentModal(false); toggleSheet(ui.checkoutSheet, true); showFeedback(error.message || 'Não foi possível abrir o pagamento seguro.'); checkoutForm.querySelector('[type="submit"]').disabled = false; }
+}
 async function submitOrder(event) {
   event.preventDefault(); if (!state.cart.length) return; ui.feedback.hidden = true; const checkoutForm = event.currentTarget; const form = new FormData(checkoutForm); const submit = checkoutForm.querySelector('[type="submit"]'); const totalCents = Math.round(cartTotal() * 100); const paymentMethod = safeText(form.get('payment')); const cashAmountReceivedCents = currencyInputToCents(form.get('cashAmountReceived'));
   if (paymentMethodIsCash(paymentMethod) && (cashAmountReceivedCents === null || cashAmountReceivedCents <= 0)) { showFeedback('Informe o valor que o cliente vai entregar em dinheiro.'); ui.cashAmountReceived?.focus(); return; }
@@ -925,14 +1001,17 @@ async function submitOrder(event) {
   submit.disabled = true;
   const locationPoint = state.fulfillment === 'delivery' ? normalizeDeliveryLocation(state.deliveryLocation) : null;
   const payload = { fulfillment: { type: state.fulfillment }, customer: { name: safeText(form.get('name')), phone: safeText(form.get('phone')) }, location: { address: safeText(form.get('address')), reference: safeText(form.get('reference')), coordinates: locationPoint }, payment: { method: paymentMethod, cashAmountReceivedCents: paymentMethodIsCash(paymentMethod) ? cashAmountReceivedCents : null }, note: safeText(form.get('note')), items: state.cart.map(({ product, quantity, selectedVariations }) => ({ productId: productId(product), quantity, variationIds: (selectedVariations || []).map((variation) => variation.id) })), totalCents };
-  toggleSheet(ui.checkoutSheet, false); setOrderSending(true);
+  toggleSheet(ui.checkoutSheet, false);
   saveCustomerProfile(checkoutForm);
   const attempt = state.orderAttempt || makeOrderAttempt(); state.orderAttempt = attempt;
-  try { const response = await fetch(`${ORDERING_API}/orders`, { method: 'POST', headers: { 'content-type': 'application/json', Accept: 'application/json', 'idempotency-key': attempt.id, 'x-order-tracking-token': attempt.trackingToken }, body: JSON.stringify(payload) }); const result = await response.json().catch(() => ({})); if (!response.ok || !result.success || !result.ticketCode) throw new Error(result.error || 'Não foi possível enviar agora.'); const submittedItems = state.cart.map((item) => ({ productName: productName(item.product), quantity: item.quantity, variations: (item.selectedVariations || []).map((variation) => ({ type: variation.type, name: variation.name })) })); const trackingToken = safeText(result.trackingToken || attempt.trackingToken); rememberOrder({ ticketCode: result.ticketCode, status: result.status || 'pending', totalCents: result.totalCents ?? payload.totalCents, fulfillment: payload.fulfillment.type, trackingToken, items: submittedItems }); state.orderAttempt = null; state.cart = []; renderCart(); checkoutForm.reset(); applyCustomerProfile(checkoutForm); state.deliveryLocation = null; setFulfillment('pickup'); try { localStorage.setItem('tweny_menu_last_ticket', result.ticketCode); } catch (_) {} watchTicket(result.ticketCode, result.status || 'pending', payload.fulfillment.type, trackingToken); } catch (error) { toggleSheet(ui.checkoutSheet, true); showFeedback(error.message || 'Não foi possível enviar agora. Tente novamente.'); } finally { setOrderSending(false); submit.disabled = false; }
+  if (paymentMethodIsMercadoPago(paymentMethod)) { await startMercadoPayment(payload, attempt, checkoutForm); return; }
+  setOrderSending(true);
+  try { const response = await fetch(`${ORDERING_API}/orders`, { method: 'POST', headers: { 'content-type': 'application/json', Accept: 'application/json', 'idempotency-key': attempt.id, 'x-order-tracking-token': attempt.trackingToken }, body: JSON.stringify(payload) }); const result = await response.json().catch(() => ({})); if (!response.ok || !result.success || !result.ticketCode) throw new Error(result.error || 'Não foi possível enviar agora.'); const trackingToken = completeSubmittedOrder(result, payload, attempt, submittedCartItems()); watchTicket(result.ticketCode, result.status || 'pending', payload.fulfillment.type, trackingToken); } catch (error) { toggleSheet(ui.checkoutSheet, true); showFeedback(error.message || 'Não foi possível enviar agora. Tente novamente.'); } finally { setOrderSending(false); submit.disabled = false; }
 }
-document.addEventListener('click', (event) => { const action = event.target.closest('[data-action]')?.dataset.action; if (action === 'open-cart') toggleSheet(ui.cartSheet, true); if (action === 'close-cart') toggleSheet(ui.cartSheet, false); if (action === 'close-options') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } if (action === 'close-checkout') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } if (action === 'open-my-orders') openMyOrders(); if (action === 'close-my-orders') toggleSheet(ui.myOrdersSheet, false); if (action === 'close-tracking') setTrackingModal(false); if (action === 'close-delivery-map') closeDeliveryMapPicker(); });
-document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (ui.deliveryMapPicker && !ui.deliveryMapPicker.hidden) { closeDeliveryMapPicker(); return; } if (!ui.trackingModal.hidden) { setTrackingModal(false); return; } if (ui.optionsSheet.getAttribute('aria-hidden') === 'false') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } else if (ui.checkoutSheet.getAttribute('aria-hidden') === 'false') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } else if (ui.myOrdersSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.myOrdersSheet, false); else if (ui.cartSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.cartSheet, false); });
+document.addEventListener('click', (event) => { const action = event.target.closest('[data-action]')?.dataset.action; if (action === 'open-cart') toggleSheet(ui.cartSheet, true); if (action === 'close-cart') toggleSheet(ui.cartSheet, false); if (action === 'close-options') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } if (action === 'close-checkout') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } if (action === 'open-my-orders') openMyOrders(); if (action === 'close-my-orders') toggleSheet(ui.myOrdersSheet, false); if (action === 'close-tracking') setTrackingModal(false); if (action === 'close-delivery-map') closeDeliveryMapPicker(); if (action === 'close-online-payment') closeOnlinePayment(); });
+document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (ui.deliveryMapPicker && !ui.deliveryMapPicker.hidden) { closeDeliveryMapPicker(); return; } if (ui.onlinePaymentModal && !ui.onlinePaymentModal.hidden) { closeOnlinePayment(); return; } if (!ui.trackingModal.hidden) { setTrackingModal(false); return; } if (ui.optionsSheet.getAttribute('aria-hidden') === 'false') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } else if (ui.checkoutSheet.getAttribute('aria-hidden') === 'false') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } else if (ui.myOrdersSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.myOrdersSheet, false); else if (ui.cartSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.cartSheet, false); });
 document.querySelectorAll('input[name="fulfillment"]').forEach((input) => input.addEventListener('change', () => setFulfillment(input.value)));
+ui.copyPixCode?.addEventListener('click', async () => { const value = safeText(ui.pixPaymentCopyCode?.value); if (!value) return; try { await navigator.clipboard.writeText(value); } catch (_) { ui.pixPaymentCopyCode?.select(); document.execCommand('copy'); } ui.copyPixCode.textContent = 'Código PIX copiado!'; window.setTimeout(() => { ui.copyPixCode.textContent = 'Copiar código PIX'; }, 1800); });
 ui.useCurrentLocation?.addEventListener('click', captureDeliveryLocation);
 ui.closeDeliveryMap?.addEventListener('click', closeDeliveryMapPicker);
 ui.confirmDeliveryLocation?.addEventListener('click', confirmDeliveryMapPoint);

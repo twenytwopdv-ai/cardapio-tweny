@@ -8,7 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23b4004b' d='M9 29c0-12 9-21 23-21s23 9 23 21c0 17-13 27-23 27S9 46 9 29Z'/%3E%3Cpath fill='%23ffad16' d='M15 25c6-7 28-7 34 0v8c-7-5-27-5-34 0z'/%3E%3Ccircle fill='%23fff8f1' cx='23' cy='39' r='4'/%3E%3Ccircle fill='%23fff8f1' cx='41' cy='39' r='4'/%3E%3C/svg%3E" />
     <title>Cardápio</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=20260913-order-details" />
+    <link rel="stylesheet" href="styles.css?v=20260915-mercado-pago" />
   </head>
   <body>
     <main class="app-shell">
@@ -194,6 +194,18 @@
       <div><span class="order-sending-spinner" aria-hidden="true"></span><strong>Enviando seu pedido</strong><p>Aguarde um instante, estamos confirmando tudo.</p></div>
     </div>
 
+    <div id="online-payment-modal" class="online-payment-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="online-payment-title">
+      <div class="online-payment-backdrop" data-action="close-online-payment"></div>
+      <section class="online-payment-card">
+        <header class="online-payment-head"><div><p class="eyebrow">PAGAMENTO SEGURO</p><h2 id="online-payment-title">PIX ou cartão</h2></div><button class="icon-button" type="button" data-action="close-online-payment" aria-label="Fechar pagamento">×</button></header>
+        <p class="online-payment-copy">Escolha PIX ou cartão. Os dados do cartão são tratados pelo Mercado Pago.</p>
+        <div id="mercado-pago-brick" aria-live="polite"></div>
+        <div id="pix-payment-details" class="pix-payment-details" hidden>
+          <p class="eyebrow">AGUARDANDO PIX</p><h3>Escaneie o QR Code para pagar</h3><img id="pix-payment-qr" alt="QR Code PIX" /><p>Após a confirmação, seu pedido será enviado automaticamente ao Caixa.</p><textarea id="pix-payment-copy-code" readonly aria-label="Código PIX copia e cola"></textarea><button id="copy-pix-code" class="secondary-button" type="button">Copiar código PIX</button>
+        </div>
+      </section>
+    </div>
+
     <div id="order-tracking-modal" class="order-tracking-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="order-tracking-title">
       <div class="order-tracking-backdrop" data-action="close-tracking"></div>
       <section class="order-tracking-card">
@@ -220,6 +232,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="runtime-config.js"></script>
-    <script src="app.js?v=20260913-customer-profile"></script>
+    <script src="https://sdk.mercadopago.com/js/v2" async></script>
+    <script src="app.js?v=20260915-mercado-pago"></script>
   </body>
 </html>
