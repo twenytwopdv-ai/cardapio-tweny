@@ -323,17 +323,60 @@ function isTraditionalBigCone(name) { return searchKey(name).includes('cascao tr
 function isTraditionalThinCone(name) { return searchKey(name).includes('casquinha tradicional'); }
 function isTraditionalConesSection(section) { return safeText(section).toLocaleUpperCase('pt-BR') === 'CASQUINHAS E CASCÕES TRADICIONAIS'; }
 function menuPhotoAssets(product) {
-  const name = searchKey(productName(product));
+  if (/sundae/i.test(productName(product))) return ['assets/sundae-cutout.png'];
+  if (product.menuView === 'up-max-gourmet') return [
+    'assets/upmax-oreo-cutout.png',
+    'assets/up-deleite-cutout-v2.png'
+  ];
   if (product.menuView === 'milk-shake') return [
     'assets/milkshake-menta-cutout.png',
     'assets/milkshake-maracuja-cutout.png',
     'assets/milkshake-morango-cutout.png'
   ];
   if (product.menuView === 'milk-shake-cafe') return [
-    'assets/milkshake-cafe-leite-ninho-cutout.png', 'assets/milkshake-cafe-ovomaltine-cutout.png'];
+    'assets/milkshake-cafe-leite-ninho-cutout.png',
+    'assets/milkshake-cafe-ovomaltine-cutout.png'
+  ];
+  const name = searchKey(productName(product));
   if (name === 'up oreo') return ['assets/upmax-oreo-cutout.png'];
   if (name === 'up deleite') return ['assets/up-deleite-cutout-v2.png'];
   return [];
+}
+function normalizeMenuPhotoFrame(photo) {
+  try {
+    const container = photo.parentElement;
+    const box = container?.getBoundingClientRect();
+    if (!box?.width || !box?.height || !photo.naturalWidth || !photo.naturalHeight) return;
+    const longestSide = 180;
+    const sourceRatio = photo.naturalWidth / photo.naturalHeight;
+    const sampleWidth = sourceRatio >= 1 ? longestSide : Math.max(1, Math.round(longestSide * sourceRatio));
+    const sampleHeight = sourceRatio >= 1 ? Math.max(1, Math.round(longestSide / sourceRatio)) : longestSide;
+    const canvas = document.createElement('canvas');
+    canvas.width = sampleWidth; canvas.height = sampleHeight;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return;
+    context.drawImage(photo, 0, 0, sampleWidth, sampleHeight);
+    const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+    let left = sampleWidth; let top = sampleHeight; let right = -1; let bottom = -1;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        if (pixels[(y * sampleWidth + x) * 4 + 3] < 22) continue;
+        left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+      }
+    }
+    if (right < left || bottom < top) return;
+    const rendered = sourceRatio > box.width / box.height
+      ? { width: box.width, height: box.width / sourceRatio }
+      : { width: box.height * sourceRatio, height: box.height };
+    const visibleWidth = rendered.width * ((right - left + 1) / sampleWidth);
+    const visibleHeight = rendered.height * ((bottom - top + 1) / sampleHeight);
+    const targetWidth = box.width * .76;
+    const targetHeight = box.height * .84;
+    const scale = Math.min(targetWidth / visibleWidth, targetHeight / visibleHeight);
+    photo.style.setProperty('--menu-photo-scale', String(Math.max(.86, Math.min(1.85, scale))));
+  } catch (_) {
+    // Se um navegador bloquear a leitura de pixels, a imagem continua com o tamanho padrão.
+  }
 }
 function addMenuPhotoVisual(node, product) {
   const assets = menuPhotoAssets(product);
@@ -342,10 +385,19 @@ function addMenuPhotoVisual(node, product) {
   image.classList.add('product-image--menu-photo');
   const showcase = document.createElement('div'); showcase.className = 'menu-photo-showcase'; showcase.setAttribute('aria-hidden', 'true');
   let loaded = 0;
-  const showInitialWhenEmpty = () => { if (!showcase.querySelector('img')) { showcase.remove(); initial.classList.remove('is-hidden'); } };
-  assets.forEach((source) => {
-    const photo = document.createElement('img'); photo.className = 'menu-photo-showcase-image'; photo.src = source; photo.alt = '';
-    photo.addEventListener('load', () => { loaded += 1; initial.classList.add('is-hidden'); if (loaded === 1) photo.classList.add('is-visible'); }, { once: true });
+  const showInitialWhenEmpty = () => {
+    if (!showcase.querySelector('img')) { showcase.remove(); initial.classList.remove('is-hidden'); }
+  };
+  assets.forEach((source, index) => {
+    const photo = document.createElement('img');
+    photo.className = 'menu-photo-showcase-image';
+    photo.src = source; photo.alt = '';
+    photo.addEventListener('load', () => {
+      normalizeMenuPhotoFrame(photo);
+      loaded += 1;
+      initial.classList.add('is-hidden');
+      if (loaded === 1) photo.classList.add('is-visible');
+    }, { once: true });
     photo.addEventListener('error', () => { photo.remove(); window.setTimeout(showInitialWhenEmpty, 0); }, { once: true });
     showcase.append(photo);
   });
@@ -367,6 +419,7 @@ function addStuffedConeVisual(node, name) {
   const showcase = document.createElement('div'); showcase.className = 'stuffed-cone-showcase'; showcase.setAttribute('aria-hidden', 'true');
   const chocolate = document.createElement('img'); chocolate.className = 'stuffed-cone-showcase-image stuffed-cone-showcase-image--chocolate'; chocolate.src = 'assets/casquinha-recheada-chocolate.webp'; chocolate.alt = '';
   const vanilla = document.createElement('img'); vanilla.className = 'stuffed-cone-showcase-image stuffed-cone-showcase-image--vanilla'; vanilla.src = 'assets/casquinha-recheada-baunilha.webp'; vanilla.alt = '';
+  [chocolate, vanilla].forEach((photo) => photo.addEventListener('load', () => normalizeMenuPhotoFrame(photo), { once: true }));
   showcase.append(chocolate, vanilla); image.append(showcase);
 }
 function addTraditionalBigConeVisual(node, name) {
@@ -426,7 +479,7 @@ function appendProductCard(product, index, categoryLabel = productCategory(produ
   addStuffedConeVisual(node, name);
   addTraditionalBigConeVisual(node, name);
   addTraditionalThinConeVisual(node, name);
-     addMenuPhotoVisual(node, product);
+  addMenuPhotoVisual(node, product);
   node.querySelector('.add-button').addEventListener('click', () => { const next = { ...product, id }; Array.isArray(next.variations) && next.variations.length ? openOptions(next) : addToCart(next); }); ui.grid.append(node);
 }
 function renderCatalog() {
@@ -445,6 +498,8 @@ function renderCatalog() {
       node.querySelector('.product-initial').textContent = section.startsWith('MILK') ? 'M' : section.startsWith('SUNDAE') ? 'S' : section.startsWith('UP') ? 'U' : 'C'; node.querySelector('.product-category').textContent = 'CARDÁPIO'; node.querySelector('h3').textContent = section;
       node.querySelector('.product-description').textContent = catalogSectionDescription(section, productsInSection.length); node.querySelector('.product-price').textContent = `${productsInSection.length} ITEM${productsInSection.length === 1 ? '' : 'S'}`;
       addTraditionalConesSectionVisual(node, section);
+      if (section === 'CASQUINHAS E CASCÕES RECHEADOS') addStuffedConeVisual(node, 'casquinha recheada');
+      if (section === 'UP MAX GOURMET') addMenuPhotoVisual(node, { menuView: 'up-max-gourmet' });
       const openSection = () => openCatalogSection(section);
       card.addEventListener('click', openSection); card.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSection(); } }); node.querySelector('.add-button').remove(); ui.grid.append(node);
     });
