@@ -1,6 +1,8 @@
 /* Em produção, runtime-config.js aponta para a API HTTPS do painel. No modo
    local continuamos usando o servidor de testes sem mudar a experiência. */
 const ORDERING_API = String(window.__TWENY_MENU_API__ || '/api/v1/menu').replace(/\/+$/, '');
+const TICKET_POLL_FAST_MS = 8000;
+const TICKET_POLL_NORMAL_MS = 20000;
 const state = { store: null, catalog: [], activeCategory: 'all', catalogHomeScrollY: 0, searchQuery: '', cart: [], fulfillment: 'pickup', deliveryLocation: null, deliveryMap: null, deliveryMapMarker: null, deliveryMapPoint: null, pendingProduct: null, reorderQueue: [], reorderActive: null, lockedScrollY: null, ticketCode: '', ticketTrackingToken: '', ticketPoll: null, ticketStatus: 'pending', ticketFulfillment: 'pickup', orderAttempt: null, onlinePayment: null, mercadoBrickController: null };
 const ORDER_HISTORY_STORAGE_KEY = 'tweny_menu_order_history_v1';
 const CUSTOMER_PROFILE_STORAGE_KEY = 'tweny_menu_customer_profile_v1';
@@ -11,7 +13,7 @@ const ui = {
   status: document.querySelector('#catalog-status'), catalogTitle: document.querySelector('#catalog-title'), catalogSearch: document.querySelector('#catalog-search-input'), grid: document.querySelector('#catalog-grid'), categories: document.querySelector('#category-bar'),
   cartCount: document.querySelector('#cart-count'), cartDock: document.querySelector('#cart-dock'), cartDockLabel: document.querySelector('#cart-dock-label'), cartDockTotal: document.querySelector('#cart-dock-total'), cartSheet: document.querySelector('#cart-sheet'), optionsSheet: document.querySelector('#options-sheet'), checkoutSheet: document.querySelector('#checkout-sheet'), myOrdersSheet: document.querySelector('#my-orders-sheet'), myOrdersActive: document.querySelector('#my-orders-active-list'), myOrdersHistory: document.querySelector('#my-orders-history-list'), myOrdersActiveCount: document.querySelector('#my-orders-active-count'), myOrdersHistoryCount: document.querySelector('#my-orders-history-count'),
   cartItems: document.querySelector('#cart-items'), cartTotal: document.querySelector('#cart-total'), checkoutButton: document.querySelector('#checkout-button'),
-  deliveryFields: document.querySelector('#delivery-fields'), useCurrentLocation: document.querySelector('#use-current-location'), deliveryLocationStatus: document.querySelector('#delivery-location-status'), deliveryMapPicker: document.querySelector('#delivery-map-picker'), deliveryMapCanvas: document.querySelector('#delivery-map-canvas'), deliveryMapStatus: document.querySelector('#delivery-map-status'), closeDeliveryMap: document.querySelector('#close-delivery-map'), confirmDeliveryLocation: document.querySelector('#confirm-delivery-location'), paymentOptions: document.querySelector('#payment-options'), cashPaymentDetails: document.querySelector('#cash-payment-details'), cashAmountReceived: document.querySelector('#cash-amount-received'), cashPaymentSummary: document.querySelector('#cash-payment-summary'), feedback: document.querySelector('#checkout-feedback'), checkoutForm: document.querySelector('#checkout-form'), orderSent: document.querySelector('#order-sent'), orderStatusCopy: document.querySelector('#order-status-copy'), orderTicketCode: document.querySelector('#order-ticket-code'), orderSending: document.querySelector('#order-sending-overlay'), trackingModal: document.querySelector('#order-tracking-modal'), trackingStatus: document.querySelector('#order-tracking-status'), trackingLabel: document.querySelector('#order-tracking-label'), trackingCopy: document.querySelector('#order-tracking-copy'), trackingTicketCode: document.querySelector('#tracking-ticket-code'), trackingSteps: document.querySelector('#order-tracking-steps'), trackingReason: document.querySelector('#order-tracking-reason'), copyTrackingTicket: document.querySelector('#copy-tracking-ticket'), trackingStep4Title: document.querySelector('#tracking-step-4-title'), trackingStep4Copy: document.querySelector('#tracking-step-4-copy'), trackingStep5Title: document.querySelector('#tracking-step-5-title'), trackingStep5Copy: document.querySelector('#tracking-step-5-copy'),
+  deliveryFields: document.querySelector('#delivery-fields'), deliveryAreaCopy: document.querySelector('#delivery-area-copy'), useCurrentLocation: document.querySelector('#use-current-location'), deliveryLocationStatus: document.querySelector('#delivery-location-status'), deliveryMapPicker: document.querySelector('#delivery-map-picker'), deliveryMapCanvas: document.querySelector('#delivery-map-canvas'), deliveryMapStatus: document.querySelector('#delivery-map-status'), closeDeliveryMap: document.querySelector('#close-delivery-map'), confirmDeliveryLocation: document.querySelector('#confirm-delivery-location'), paymentOptions: document.querySelector('#payment-options'), cashPaymentDetails: document.querySelector('#cash-payment-details'), cashAmountReceived: document.querySelector('#cash-amount-received'), cashPaymentSummary: document.querySelector('#cash-payment-summary'), feedback: document.querySelector('#checkout-feedback'), checkoutForm: document.querySelector('#checkout-form'), orderSent: document.querySelector('#order-sent'), orderStatusCopy: document.querySelector('#order-status-copy'), orderTicketCode: document.querySelector('#order-ticket-code'), orderSending: document.querySelector('#order-sending-overlay'), trackingModal: document.querySelector('#order-tracking-modal'), trackingStatus: document.querySelector('#order-tracking-status'), trackingLabel: document.querySelector('#order-tracking-label'), trackingCopy: document.querySelector('#order-tracking-copy'), trackingTicketCode: document.querySelector('#tracking-ticket-code'), trackingSteps: document.querySelector('#order-tracking-steps'), trackingReason: document.querySelector('#order-tracking-reason'), copyTrackingTicket: document.querySelector('#copy-tracking-ticket'), trackingStep4Title: document.querySelector('#tracking-step-4-title'), trackingStep4Copy: document.querySelector('#tracking-step-4-copy'), trackingStep5Title: document.querySelector('#tracking-step-5-title'), trackingStep5Copy: document.querySelector('#tracking-step-5-copy'),
   optionsTitle: document.querySelector('#options-title'), optionsSubtitle: document.querySelector('#options-subtitle'), variationGroups: document.querySelector('#variation-groups'), quickAdd: document.querySelector('#options-quick-add'),
   onlinePaymentModal: document.querySelector('#online-payment-modal'), mercadoPagoBrick: document.querySelector('#mercado-pago-brick'), pixPaymentDetails: document.querySelector('#pix-payment-details'), pixPaymentQr: document.querySelector('#pix-payment-qr'), pixPaymentCopyCode: document.querySelector('#pix-payment-copy-code'), copyPixCode: document.querySelector('#copy-pix-code')
 };
@@ -103,12 +105,45 @@ function setDeliveryLocationStatus(message, type = '') {
   ui.deliveryLocationStatus.textContent = message;
   ui.deliveryLocationStatus.dataset.state = type;
 }
+function deliveryArea() {
+  const center = normalizeDeliveryLocation(state.store?.locationCenter);
+  if (!center) return null;
+  const configuredRadius = Number(String(state.store?.deliveryRadiusKm ?? '').replace(',', '.'));
+  const radiusKm = Number.isFinite(configuredRadius) ? Math.max(1, Math.min(80, configuredRadius)) : 12;
+  const label = safeText(state.store?.deliveryAreaLabel)
+    || safeText(state.store?.locationFallbackQuery).replace(/,\s*Brasil$/i, '')
+    || 'a região da loja';
+  return { center, radiusKm, label };
+}
+function distanceInKm(first, second) {
+  const radians = (value) => value * Math.PI / 180;
+  const latitudeDelta = radians(second.latitude - first.latitude); const longitudeDelta = radians(second.longitude - first.longitude);
+  const formula = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(first.latitude)) * Math.cos(radians(second.latitude)) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(formula), Math.sqrt(1 - formula));
+}
+function deliveryAreaError() {
+  const area = deliveryArea();
+  return area ? `No momento, entregamos somente em ${area.label}. Escolha um endereço dentro da área de entrega.` : 'A área de entrega desta loja ainda não está configurada. Escolha retirada na loja ou fale com a loja.';
+}
+function deliveryPointIsWithinArea(point) {
+  const area = deliveryArea(); const location = normalizeDeliveryLocation(point);
+  if (!area || !location) return null;
+  const gpsMarginKm = location.source === 'browser' && location.accuracy !== null ? Math.min(0.75, Math.max(0, location.accuracy / 1000)) : 0;
+  return distanceInKm(area.center, location) <= area.radiusKm + gpsMarginKm;
+}
+function renderDeliveryAreaCopy() {
+  if (!ui.deliveryAreaCopy) return;
+  const area = deliveryArea();
+  ui.deliveryAreaCopy.textContent = area ? `Atendemos somente em ${area.label}` : 'Informe o endereço abaixo';
+}
 function renderDeliveryLocation() {
   const point = normalizeDeliveryLocation(state.deliveryLocation);
   if (!point) {
-    setDeliveryLocationStatus('Obrigatório: confirme no mapa a localização exata da entrega.', 'warning');
+    const area = deliveryArea();
+    setDeliveryLocationStatus(`${area ? `Entregamos somente em ${area.label}. ` : ''}Obrigatório: confirme no mapa a localização exata da entrega.`, 'warning');
     return;
   }
+  if (deliveryPointIsWithinArea(point) === false) { setDeliveryLocationStatus(deliveryAreaError(), 'warning'); return; }
   const accuracy = point.accuracy != null ? ` Precisão aproximada: ${Math.round(point.accuracy)} m.` : '';
   const source = point.source === 'map' ? 'Ponto confirmado manualmente no mapa.' : 'Localização atual obtida pelo GPS do aparelho.';
   setDeliveryLocationStatus(`${source} Confira o endereço e o número antes de enviar.${accuracy}`, 'success');
@@ -199,6 +234,10 @@ function confirmDeliveryMapPoint() {
   const point = normalizeDeliveryLocation(state.deliveryMapPoint);
   if (!point) {
     setDeliveryMapStatus('Escolha um ponto no mapa antes de confirmar.', 'warning');
+    return;
+  }
+  if (deliveryPointIsWithinArea(point) === false) {
+    setDeliveryMapStatus(deliveryAreaError(), 'warning');
     return;
   }
   state.deliveryLocation = point;
@@ -673,12 +712,18 @@ function configureCheckout(store) {
   const labels = { dinheiro: 'Dinheiro', transferencia: 'Transferência' };
   const choices = [];
 
-  // Online is deliberately a distinct option. Credit/debit selected below are
-  // charged by the store's card machine at handoff, never by Mercado Pago.
-  if (has('pix', 'credito', 'crédito', 'debito', 'débito')) choices.push({ value: 'mercado_pago', title: 'PIX ou cartão online', hint: 'Pague agora via PIX ou cartão' });
-  if (has('credito', 'crédito')) choices.push({ value: 'credito_maquininha', title: 'Crédito na maquininha', hint: 'Pagar na entrega ou retirada' });
-  if (has('debito', 'débito')) choices.push({ value: 'debito_maquininha', title: 'Débito na maquininha', hint: 'Pagar na entrega ou retirada' });
-  normalized.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito'].includes(method)).forEach((method) => {
+  // Legacy credit/debit settings are intentionally treated as both paths until
+  // that store is saved again in Gestor with the new explicit checkboxes.
+  const onlinePix = has('pix');
+  const onlineCredit = has('credito_online', 'crédito_online', 'credito', 'crédito');
+  const onlineDebit = has('debito_online', 'débito_online', 'debito', 'débito');
+  if (onlinePix || onlineCredit || onlineDebit) {
+    const onlineTitle = onlinePix && (onlineCredit || onlineDebit) ? 'PIX ou cartão online' : onlinePix ? 'PIX online' : 'Cartão online';
+    choices.push({ value: 'mercado_pago', title: onlineTitle, hint: 'Pague agora de forma segura pelo site' });
+  }
+  if (has('credito_maquininha', 'crédito_maquininha', 'credito', 'crédito')) choices.push({ value: 'credito_maquininha', title: 'Crédito na maquininha', hint: 'Pagar na entrega ou retirada' });
+  if (has('debito_maquininha', 'débito_maquininha', 'debito', 'débito')) choices.push({ value: 'debito_maquininha', title: 'Débito na maquininha', hint: 'Pagar na entrega ou retirada' });
+  normalized.filter((method) => !['pix', 'credito', 'crédito', 'debito', 'débito', 'credito_online', 'crédito_online', 'debito_online', 'débito_online', 'credito_maquininha', 'crédito_maquininha', 'debito_maquininha', 'débito_maquininha'].includes(method)).forEach((method) => {
     choices.push({ value: method, title: labels[method] || safeText(method), hint: '' });
   });
   if (!choices.length) choices.push({ value: 'dinheiro', title: 'Dinheiro', hint: '' });
@@ -692,6 +737,15 @@ function configureCheckout(store) {
 }
 function paymentMethodIsCash(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'dinheiro'; }
 function paymentMethodIsMercadoPago(value) { return safeText(value).toLocaleLowerCase('pt-BR') === 'mercado_pago'; }
+function configuredOnlinePaymentMethods() {
+  const methods = Array.isArray(state.store?.paymentMethods) ? state.store.paymentMethods.map((method) => safeText(method).toLocaleLowerCase('pt-BR')) : ['pix', 'credito', 'debito'];
+  const has = (...values) => values.some((value) => methods.includes(value));
+  return {
+    pix: has('pix'),
+    credit: has('credito_online', 'crédito_online', 'credito', 'crédito'),
+    debit: has('debito_online', 'débito_online', 'debito', 'débito')
+  };
+}
 function fullNameIsValid(value) {
   const words = safeText(value).split(/\s+/).filter((word) => word.replace(/[^A-Za-zÀ-ÿ]/g, '').length >= 2);
   return words.length >= 2;
@@ -724,8 +778,10 @@ async function loadCatalog() {
   try {
     const response = await fetch(`${ORDERING_API}/catalog`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
     if (!response.ok) throw new Error(`status ${response.status}`); const payload = await response.json(); const catalog = Array.isArray(payload.catalog) ? payload.catalog : [];
-    state.store = payload.store || {}; state.catalog = splitCoffeeMilkShakes(catalog.filter((item) => item && productId(item) && priceOf(item) >= 0 && item.active !== false)); state.activeCategory = 'all';
-    ui.storeName.textContent = safeText(state.store.name) || 'Cardápio'; ui.storeDescription.textContent = safeText(state.store.description) || 'Escolha seus produtos e envie seu pedido.'; configureCheckout(state.store);
+    state.store = payload.store || {};
+    if (state.store.maintenanceEnabled === true || ['1', 'true', 'sim', 'on'].includes(safeText(state.store.maintenanceEnabled).toLowerCase())) { window.location.replace(new URL('manutencao.html', window.location.href).toString()); return; }
+    state.catalog = splitCoffeeMilkShakes(catalog.filter((item) => item && productId(item) && priceOf(item) >= 0 && item.active !== false)); state.activeCategory = 'all';
+    ui.storeName.textContent = safeText(state.store.name) || 'Cardápio'; ui.storeDescription.textContent = safeText(state.store.description) || 'Escolha seus produtos e envie seu pedido.'; configureCheckout(state.store); renderDeliveryAreaCopy(); renderDeliveryLocation();
     if (!state.catalog.length) { setStatus('Ainda não há produtos de venda disponíveis neste cardápio.', 'is-empty'); return; }
     ui.status.hidden = true; renderCategories(); renderCatalog();
   } catch (_) { setStatus('Este cardápio ainda não está conectado à loja. Assim que a integração for ativada, os produtos de venda aparecerão aqui automaticamente.', 'is-error'); }
@@ -750,12 +806,25 @@ function applyCustomerProfile(form = ui.checkoutForm) {
   if (phone && !safeText(phone.value) && profile.phone) phone.value = profile.phone;
 }
 function setOrderSending(isSending) { ui.orderSending.hidden = !isSending; }
-function stopTicketPolling() { if (state.ticketPoll) window.clearInterval(state.ticketPoll); state.ticketPoll = null; }
+function stopTicketPolling() { if (state.ticketPoll) window.clearTimeout(state.ticketPoll); state.ticketPoll = null; }
+function ticketPollingIsVisible() {
+  return !document.hidden && Boolean(state.ticketCode) && (
+    (ui.trackingModal && !ui.trackingModal.hidden) || (ui.onlinePaymentModal && !ui.onlinePaymentModal.hidden)
+  );
+}
+function ticketPollDelay() { return state.ticketStatus === 'payment_pending' ? TICKET_POLL_FAST_MS : TICKET_POLL_NORMAL_MS; }
+function ticketIsFinished(status = state.ticketStatus) { return ['rejected', 'cancelled', 'picked_up', 'delivered', 'completed'].includes(status); }
+function scheduleTicketRefresh(delayMs = ticketPollDelay()) {
+  stopTicketPolling();
+  if (!ticketPollingIsVisible() || ticketIsFinished()) return;
+  state.ticketPoll = window.setTimeout(() => { state.ticketPoll = null; void refreshTicketStatus(); }, delayMs);
+}
 function setTrackingModal(isOpen) {
   ui.trackingModal.hidden = !isOpen; ui.trackingModal.setAttribute('aria-hidden', String(!isOpen));
   const hasOpenLayer = appSheets().some((item) => item.getAttribute('aria-hidden') === 'false') || isOpen;
   setPageScrollLocked(hasOpenLayer);
-  if (isOpen) focusModalControl(ui.trackingModal);
+  if (isOpen) { focusModalControl(ui.trackingModal); scheduleTicketRefresh(0); }
+  else if (!ui.onlinePaymentModal || ui.onlinePaymentModal.hidden) stopTicketPolling();
 }
 function readOrderHistory() {
   try {
@@ -957,18 +1026,17 @@ function renderTicketStatus(ticketCode, status = 'pending', reason = '', fulfill
   updateRememberedOrder(state.ticketCode, { status: state.ticketStatus, reason: safeText(reason), fulfillment: state.ticketFulfillment });
 }
 async function refreshTicketStatus() {
-  if (!state.ticketCode) return;
+  if (!ticketPollingIsVisible()) { stopTicketPolling(); return; }
   try {
     const response = await fetch(`${ORDERING_API}/orders/${encodeURIComponent(state.ticketCode)}`, { headers: trackingHeaders(state.ticketTrackingToken), cache: 'no-store' });
     const result = await response.json().catch(() => ({})); if (!response.ok || !result.success) return;
     const previous = state.ticketStatus; renderTicketStatus(result.ticketCode || state.ticketCode, result.status, result.reason, result.fulfillmentType || state.ticketFulfillment);
     if (previous === 'payment_pending' && result.status !== 'payment_pending' && ui.onlinePaymentModal && !ui.onlinePaymentModal.hidden) { setOnlinePaymentModal(false); setTrackingModal(true); }
-    if (['rejected', 'cancelled', 'picked_up', 'delivered', 'completed'].includes(result.status)) stopTicketPolling();
-  } catch (_) {}
+    if (ticketIsFinished(result.status)) stopTicketPolling(); else scheduleTicketRefresh();
+  } catch (_) { scheduleTicketRefresh(); }
 }
 function watchTicket(ticketCode, status = 'pending', fulfillment = 'pickup', trackingToken = '') {
   stopTicketPolling(); state.ticketTrackingToken = safeText(trackingToken || trackingTokenForTicket(ticketCode)); renderTicketStatus(ticketCode, status, '', fulfillment); setTrackingModal(true);
-  state.ticketPoll = window.setInterval(refreshTicketStatus, 5000); refreshTicketStatus();
 }
 function resetOrderSent() { ui.checkoutForm.hidden = false; ui.orderSent.hidden = true; }
 async function copyTrackingTicket() {
@@ -981,7 +1049,8 @@ function setOnlinePaymentModal(isOpen) {
   ui.onlinePaymentModal.hidden = !isOpen; ui.onlinePaymentModal.setAttribute('aria-hidden', String(!isOpen));
   const hasOpenLayer = appSheets().some((item) => item.getAttribute('aria-hidden') === 'false') || !ui.trackingModal.hidden || isOpen;
   setPageScrollLocked(hasOpenLayer);
-  if (isOpen) focusModalControl(ui.onlinePaymentModal);
+  if (isOpen) { focusModalControl(ui.onlinePaymentModal); scheduleTicketRefresh(0); }
+  else if (!ui.trackingModal || ui.trackingModal.hidden) stopTicketPolling();
 }
 function closeOnlinePayment() {
   const hasPendingPix = state.ticketCode && state.ticketStatus === 'payment_pending';
@@ -1021,7 +1090,7 @@ async function submitMercadoPayment(formData) {
     if (qrCode && qrImage) {
       ui.mercadoPagoBrick.hidden = true; ui.pixPaymentDetails.hidden = false; ui.pixPaymentQr.src = `data:image/png;base64,${qrImage}`; ui.pixPaymentCopyCode.value = qrCode;
       state.ticketCode = result.ticketCode; state.ticketTrackingToken = trackingToken; state.ticketStatus = result.status || 'payment_pending'; state.ticketFulfillment = online.payload.fulfillment.type;
-      stopTicketPolling(); state.ticketPoll = window.setInterval(refreshTicketStatus, 5000); void refreshTicketStatus();
+      scheduleTicketRefresh(0);
     } else { setOnlinePaymentModal(false); watchTicket(result.ticketCode, result.status || 'pending', online.payload.fulfillment.type, trackingToken); }
     state.onlinePayment = null;
   } catch (error) { throw error; } finally { setOrderSending(false); }
@@ -1033,12 +1102,18 @@ async function startMercadoPayment(payload, attempt, checkoutForm) {
     const response = await fetch(`${ORDERING_API}/payment-config`, { headers: { Accept: 'application/json' }, cache: 'no-store' }); const config = await response.json().catch(() => ({}));
     if (!response.ok || !config.enabled || !safeText(config.publicKey)) throw new Error(config.error || 'Pagamento online indisponível no momento.');
     const MercadoPago = await loadMercadoPagoSdk(); const mp = new MercadoPago(config.publicKey, { locale: 'pt-BR' }); const bricks = mp.bricks();
+    const onlineMethods = configuredOnlinePaymentMethods();
+    const paymentMethods = {};
+    if (onlineMethods.credit) paymentMethods.creditCard = 'all';
+    if (onlineMethods.debit) paymentMethods.debitCard = 'all';
+    if (onlineMethods.pix) paymentMethods.bankTransfer = 'pix';
     state.mercadoBrickController = await bricks.create('payment', 'mercado-pago-brick', {
       initialization: { amount: Number((payload.totalCents / 100).toFixed(2)) },
       // Mercado Pago expects payment method filters as strings. In particular,
       // Pix is `bankTransfer: 'pix'`, not an array. Passing the array made the
-      // SDK fail while searching the available payment methods.
-      customization: { paymentMethods: { creditCard: 'all', debitCard: 'all', bankTransfer: 'pix' } },
+      // SDK fail while searching the available payment methods. Do not expose
+      // a method that the current store did not enable in Gestor.
+      customization: { paymentMethods },
       callbacks: {
         onReady: () => {},
         onError: (error) => { console.error('[Mercado Pago Brick]', error); },
@@ -1058,6 +1133,7 @@ async function submitOrder(event) {
   if (state.fulfillment === 'delivery' && deliveryAddress.length < 5) { showFeedback('Informe o endereço completo da entrega.'); checkoutForm.querySelector('[name="address"]')?.focus(); return; }
   if (state.fulfillment === 'delivery' && deliveryReference.length < 2) { showFeedback('Informe um ponto de referência para a entrega.'); checkoutForm.querySelector('[name="reference"]')?.focus(); return; }
   if (state.fulfillment === 'delivery' && !locationPoint) { showFeedback('Confirme a localização da entrega no mapa antes de enviar.'); ui.useCurrentLocation?.focus(); return; }
+  if (state.fulfillment === 'delivery' && deliveryPointIsWithinArea(locationPoint) === false) { showFeedback(deliveryAreaError()); ui.useCurrentLocation?.focus(); return; }
   if (paymentMethodIsCash(paymentMethod) && (cashAmountReceivedCents === null || cashAmountReceivedCents <= 0)) { showFeedback('Informe o valor que o cliente vai entregar em dinheiro.'); ui.cashAmountReceived?.focus(); return; }
   if (paymentMethodIsCash(paymentMethod) && cashAmountReceivedCents < totalCents) { showFeedback(`O valor em dinheiro não cobre o pedido. Faltam ${money.format((totalCents - cashAmountReceivedCents) / 100)}.`); ui.cashAmountReceived?.focus(); return; }
   submit.disabled = true;
@@ -1070,6 +1146,7 @@ async function submitOrder(event) {
   try { const response = await fetch(`${ORDERING_API}/orders`, { method: 'POST', headers: { 'content-type': 'application/json', Accept: 'application/json', 'idempotency-key': attempt.id, 'x-order-tracking-token': attempt.trackingToken }, body: JSON.stringify(payload) }); const result = await response.json().catch(() => ({})); if (!response.ok || !result.success || !result.ticketCode) throw new Error(result.error || 'Não foi possível enviar agora.'); const trackingToken = completeSubmittedOrder(result, payload, attempt, submittedCartItems()); watchTicket(result.ticketCode, result.status || 'pending', payload.fulfillment.type, trackingToken); } catch (error) { toggleSheet(ui.checkoutSheet, true); showFeedback(error.message || 'Não foi possível enviar agora. Tente novamente.'); } finally { setOrderSending(false); submit.disabled = false; }
 }
 document.addEventListener('click', (event) => { const action = event.target.closest('[data-action]')?.dataset.action; if (action === 'open-cart') toggleSheet(ui.cartSheet, true); if (action === 'close-cart') toggleSheet(ui.cartSheet, false); if (action === 'close-options') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } if (action === 'close-checkout') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } if (action === 'open-my-orders') openMyOrders(); if (action === 'close-my-orders') toggleSheet(ui.myOrdersSheet, false); if (action === 'close-tracking') setTrackingModal(false); if (action === 'close-delivery-map') closeDeliveryMapPicker(); if (action === 'close-online-payment') closeOnlinePayment(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ticketPollingIsVisible()) scheduleTicketRefresh(0); else if (document.hidden) stopTicketPolling(); });
 document.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (ui.deliveryMapPicker && !ui.deliveryMapPicker.hidden) { closeDeliveryMapPicker(); return; } if (ui.onlinePaymentModal && !ui.onlinePaymentModal.hidden) { closeOnlinePayment(); return; } if (!ui.trackingModal.hidden) { setTrackingModal(false); return; } if (ui.optionsSheet.getAttribute('aria-hidden') === 'false') { clearReorderFlow(); toggleSheet(ui.optionsSheet, false); } else if (ui.checkoutSheet.getAttribute('aria-hidden') === 'false') { toggleSheet(ui.checkoutSheet, false); resetOrderSent(); } else if (ui.myOrdersSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.myOrdersSheet, false); else if (ui.cartSheet.getAttribute('aria-hidden') === 'false') toggleSheet(ui.cartSheet, false); });
 document.querySelectorAll('input[name="fulfillment"]').forEach((input) => input.addEventListener('change', () => setFulfillment(input.value)));
 ui.copyPixCode?.addEventListener('click', async () => { const value = safeText(ui.pixPaymentCopyCode?.value); if (!value) return; try { await navigator.clipboard.writeText(value); } catch (_) { ui.pixPaymentCopyCode?.select(); document.execCommand('copy'); } ui.copyPixCode.textContent = 'Código PIX copiado!'; window.setTimeout(() => { ui.copyPixCode.textContent = 'Copiar código PIX'; }, 1800); });

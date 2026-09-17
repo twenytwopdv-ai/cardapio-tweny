@@ -15,7 +15,7 @@
       <header class="topbar">
         <button class="brand" type="button" aria-label="Voltar ao início" data-action="home">
           <span class="brand-mark" aria-hidden="true">tw</span>
-          <span class="brand-copy"><span id="store-name">Carregando loja...</span><small>pedido pelo celular</small></span>
+          <span class="brand-copy"><span id="store-name">Carregando loja...</span></span>
         </button>
         <div class="topbar-actions">
           <button class="my-orders-button" type="button" data-action="open-my-orders" aria-label="Meus pedidos" title="Meus pedidos">
@@ -117,7 +117,7 @@
             <legend>Como você quer receber?</legend>
             <div class="fulfillment-options">
               <label><input type="radio" name="fulfillment" value="pickup" checked /><span><b aria-hidden="true">⌁</b> Retirar na loja<small>Você busca quando estiver pronto</small></span></label>
-              <label><input type="radio" name="fulfillment" value="delivery" /><span><b aria-hidden="true">⌂</b> Entrega<small>Informe o endereço abaixo</small></span></label>
+              <label><input type="radio" name="fulfillment" value="delivery" /><span><b aria-hidden="true">⌂</b> Entrega<small id="delivery-area-copy">Informe o endereço abaixo</small></span></label>
             </div>
           </fieldset>
           <label>Nome completo *<input name="name" autocomplete="name" required placeholder="Digite seu nome e sobrenome" /></label>
@@ -233,6 +233,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="runtime-config.js"></script>
     <script src="https://sdk.mercadopago.com/js/v2" async></script>
-    <script src="app.js?v=20260915-gps-explicito"></script>
+    <script src="app.js?v=20260916-pagamentos-separados"></script>
   </body>
 </html>
