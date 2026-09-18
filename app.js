@@ -67,6 +67,19 @@ function setStatus(message, type = 'is-loading') {
     : '<span></span>';
   ui.status.lastElementChild.textContent = message;
 }
+function setCatalogUnavailable(message) {
+  // Não preserve produtos/sacola de uma vitrine que foi desativada. Mesmo que
+  // o cliente estivesse com uma aba antiga aberta, ela não pode parecer apta a
+  // concluir um pedido quando a API já bloqueou a loja.
+  state.catalog = [];
+  state.cart = [];
+  state.activeCategory = 'all';
+  ui.grid.replaceChildren();
+  ui.categories.replaceChildren();
+  ui.categories.hidden = true;
+  renderCart();
+  setStatus(message, 'is-error');
+}
 function setPageScrollLocked(isLocked) {
   const root = document.documentElement; const body = document.body;
   if (isLocked && state.lockedScrollY === null) {
@@ -777,14 +790,26 @@ async function loadCatalog() {
   setStatus('Atualizando cardápio...', 'is-loading'); ui.grid.innerHTML = ''; ui.categories.hidden = true;
   try {
     const response = await fetch(`${ORDERING_API}/catalog`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-    if (!response.ok) throw new Error(`status ${response.status}`); const payload = await response.json(); const catalog = Array.isArray(payload.catalog) ? payload.catalog : [];
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) {
+      const error = new Error(safeText(payload?.error) || `status ${response.status}`);
+      error.catalogUnavailable = [404, 503].includes(response.status);
+      throw error;
+    }
+    const catalog = Array.isArray(payload.catalog) ? payload.catalog : [];
     state.store = payload.store || {};
     if (state.store.maintenanceEnabled === true || ['1', 'true', 'sim', 'on'].includes(safeText(state.store.maintenanceEnabled).toLowerCase())) { window.location.replace(new URL('manutencao.html', window.location.href).toString()); return; }
     state.catalog = splitCoffeeMilkShakes(catalog.filter((item) => item && productId(item) && priceOf(item) >= 0 && item.active !== false)); state.activeCategory = 'all';
     ui.storeName.textContent = safeText(state.store.name) || 'Cardápio'; ui.storeDescription.textContent = safeText(state.store.description) || 'Escolha seus produtos e envie seu pedido.'; configureCheckout(state.store); renderDeliveryAreaCopy(); renderDeliveryLocation();
     if (!state.catalog.length) { setStatus('Ainda não há produtos de venda disponíveis neste cardápio.', 'is-empty'); return; }
     ui.status.hidden = true; renderCategories(); renderCatalog();
-  } catch (_) { setStatus('Este cardápio ainda não está conectado à loja. Assim que a integração for ativada, os produtos de venda aparecerão aqui automaticamente.', 'is-error'); }
+  } catch (error) {
+    if (error?.catalogUnavailable) {
+      setCatalogUnavailable(safeText(error.message) || 'O cardápio está temporariamente indisponível. Fale com a loja para fazer seu pedido.');
+      return;
+    }
+    setStatus('Este cardápio ainda não está conectado à loja. Assim que a integração for ativada, os produtos de venda aparecerão aqui automaticamente.', 'is-error');
+  }
 }
 function showFeedback(message) { ui.feedback.hidden = false; ui.feedback.textContent = message; }
 function readCustomerProfile() {
